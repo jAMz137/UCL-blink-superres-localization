@@ -1,4 +1,30 @@
 import numpy as np
+from utils_toolbox import sci_opt_fit
+
+class blk_event():
+    def __init__(self, slc: tuple[np.ndarray,np.ndarray] ):
+        (self. min_coord, self. max_coord) = slc
+        # 事件时间范围
+        self. zng   = (self.max_coord[0] +1 -self.min_coord[0]) /2 
+        # self. spots = spotA
+        self. glced = False
+        self. brk   = 0
+    
+    @property
+    def centr(self):
+        # 事件时间中心
+        tz  = (self.max_coord[0] +1 +self.min_coord[0]) /2
+
+        return np.append(tz, cntr0)
+    
+    def shapeR(self):
+        # YX轴上的大小
+        return np.array([self.max_coord[1] -self.min_coord[1],
+                        self.max_coord[2] -self.min_coord[2]])
+        
+
+
+        self. std  = std
 
 
 class blk_events():
@@ -7,7 +33,8 @@ class blk_events():
         self.slice_ = slice__
         self.maxpos = max_pos
 
-    def blink_mark ( enl0: int, enl: int):
+    def blink_mark (self, enl0: int, enl: int, ex: int, shape1, pixel_size,
+                    imdi: np.ndarray, imgd: np.ndarray):
         '''
         prooerties: 
             centr: 中心位置  rng: 时间中心  spots: 光斑图貌  std: 拟合误差    
@@ -15,28 +42,24 @@ class blk_events():
             1.硬断点(范围过大 or 轮廓异常) 2.信噪比低(拟合失败)  3.范围过小  4.靠近边缘 
         '''
         Avent0 = []
-        for j, (min_coord, max_coord) in enumerate(slice_):
-            brk     = 0
-            # 事件时间中心与时间范围
-            tz      = (max_coord[0] +1 +min_coord[0]) /2
-            ng      = (max_coord[0] +1 -min_coord[0]) /2    
-            # YX轴上的大小
-            shapR   = np.array([max_coord[1] -min_coord[1],
-                                max_coord[2] -min_coord[2]])
+        for j, slc_ in enumerate(self.slice_):
+            event   = blk_event(slc_)
+            
+            shapR   = event. shapeR()
             # 外扩ex光斑tz加和后形貌
             spotA   = np.abs(np.sum(imdi[
-                                min_coord[0]: max_coord[0]+1,
-                                max(min_coord[1]-ex,0): max_coord[1]+ex+1, 
-                                max(min_coord[2]-ex,0): max_coord[2]+ex+1],axis=0))
+                                event.min_coord[0]: event.max_coord[0]+1,
+                                max(event.min_coord[1]-ex,0): event.max_coord[1]+ex+1, 
+                                max(event.min_coord[2]-ex,0): event.max_coord[2]+ex+1],axis=0))
             # 无外扩光斑tz加和后形貌
             spotB   = np.abs(np.sum(imgd[
-                                min_coord[0]: max_coord[0]+1,
-                                min_coord[1]: max_coord[1]+1,
-                                min_coord[2]: max_coord[2]+1],axis=0))
+                                event.min_coord[0]: event.max_coord[0]+1,
+                                event.min_coord[1]: event.max_coord[1]+1,
+                                event.min_coord[2]: event.max_coord[2]+1],axis=0))
             maxi0   = np.argwhere(spotB == np.max(spotB))[0]
-            cntr0   = maxi0 + np.array([min_coord[1],min_coord[2]])
-            cntr1   = max_pos[j][1:]
-            maxi1   = cntr1 - np.array([min_coord[1],min_coord[2]])
+            cntr0   = maxi0 + np.array([event.min_coord[1],event.min_coord[2]])
+            cntr1   = self.maxpos[j][1:]
+            maxi1   = cntr1 - np.array([event.min_coord[1],event.min_coord[2]])
             if np.any(np.abs(maxi1 - maxi0)>enl/2):
                 cntr0 = cntr1; maxi0 = maxi1; brk = 1
             if np.any(np.abs(maxi0+1-shapR/2)>enl): brk = 1
@@ -55,10 +78,10 @@ class blk_events():
                     # fit_plot(spotA, popt, pixel_size, show =1)
                     std     = sum(perr[1 :3])
                     if np.all(std < 1): 
-                        cntr0 = np.array([popt[2]+max(min_coord[1]-ex,0), 
-                                          popt[1]+max(min_coord[2]-ex,0)])
+                        cntr0 = np.array([popt[2]+max(event.min_coord[1]-ex,0), 
+                                          popt[1]+max(event.min_coord[2]-ex,0)])
             item000 = {}        
-            item000['slc']  = slice_[j]
+            item000['self.slc']  = self.slc[j]
             item000['brk']  = brk
             item000['zng']  = ng 
             item000['std']  = std
@@ -82,8 +105,8 @@ class blk_events():
         z_range = range(np.int32(z0), np.int32(z1))
         
         if cntrz1 in z_range:
-            li  = np.array(itm0['slc'])
-            lii = np.array(itm1['slc'])
+            li  = np.array(itm0['self.slc'])
+            lii = np.array(itm1['self.slc'])
             lmi = np.min(np.vstack((li[0],lii[0])),axis=0)
             lma = np.max(np.vstack((li[1],lii[1])),axis=0)
             spoti = np.sum(imdi[li[0][0]:li[1][0]+1,

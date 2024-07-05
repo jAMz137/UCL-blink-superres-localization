@@ -112,13 +112,15 @@ def fit_plot(Image0, popt0, pixel_size, filename='test0000', ix=0, labelp='', sh
     f1      = plt.figure(figsize=(18,4))
     
     f1ax1   = f1.add_subplot(131)
-    fig1    = f1ax1.pcolorfast(axis0, axis1, Image0, vmin =0, vmax =Vmax, cmap ='Blues')
+    fig1    = f1ax1.pcolorfast(axis0, axis1, Image0, 
+                               vmin =0, vmax =Vmax, cmap ='Blues')
     f1ax1.set_xlabel('$x$ ($\mu$$m$)')
     f1ax1.set_ylabel('$y$ ($\mu$$m$)')
     plt.colorbar(fig1)
     
     f1ax2   = f1.add_subplot(132)
-    fig2    = f1ax2.pcolorfast(axis0, axis1, imgtofit_fitted1, vmin=0, vmax=Vmax, cmap ='Blues')
+    fig2    = f1ax2.pcolorfast(axis0, axis1, imgtofit_fitted1, 
+                               vmin =0, vmax =Vmax, cmap ='Blues')
     f1ax2.set_xlabel('$x$ ($\mu$$m$)')
     f1ax2.set_ylabel('$y$ ($\mu$$m$)')
     plt.colorbar(fig2)
@@ -136,9 +138,9 @@ def fit_plot(Image0, popt0, pixel_size, filename='test0000', ix=0, labelp='', sh
 
 #%% 密度矩阵操作函数
 
-def imloc_max(matrix, tr0, tr1, tz0, enl0):
-    win_size = (tz0, enl0, enl0)
-    if tr0 < 0: tr0=-tr0; matrix = -matrix;
+def imloc_max(matrix: np.ndarray, tr0: float, tr1:float, 
+              win_size: tuple, enl0: int) -> tuple[list[tuple[np.ndarray,np.ndarray]], list[np.ndarray]]: 
+    if tr0 < 0: tr0=-tr0; matrix = -matrix
     # coordinates = np.array(group)
     # min_coordi  = coordinates.min(axis=0) 
     # max_coordi  = coordinates.max(axis=0)
@@ -173,22 +175,27 @@ def imloc_max(matrix, tr0, tr1, tz0, enl0):
         average_value = np.mean(center_region2d)
         
         if  average_value >= tr1:
-            result_range.append((np.array([range_z[0], range_y[0], range_x[0]]),
-                                 np.array([range_z[1], range_y[1], range_x[1]])))
+            result_range.append((np.array([range_z[0], 
+                                           range_y[0], 
+                                           range_x[0]]),
+                                 np.array([range_z[1], 
+                                           range_y[1], 
+                                           range_x[1]])))
             result_pos.append(pos)
-    return result_range, result_pos
+    return (result_range, result_pos)
 
-def mono_range(array0, pos0, enlx, direction, threshold):
+def mono_range(array0: np.ndarray, pos0: int, enlx: int, direction, threshold):
     current_value = array0[pos0]
     # 寻找正方向的范围
     if direction in ['both', 'positive']:
         i = 1
-        while (pos0 + i < array0.shape) \
-          and (array0[pos0 + i] > threshold) \
-          and (array0[pos0 + i] <= current_value):
+        while (pos0 +i < array0.shape[0]) and \
+        (array0[pos0 +i] >  threshold) and \
+        (array0[pos0 +i] <= current_value):
             current_value = array0[pos0 + i]
             i += 1
-        if i > enlx: i = enlx +1
+        if i > enlx: 
+            i = enlx +1
         range_positive = pos0 +i-1
     else:
         range_positive = pos0
@@ -197,12 +204,13 @@ def mono_range(array0, pos0, enlx, direction, threshold):
     # 寻找负方向的范围
     if direction in ['both', 'negative']:
         i = 1
-        while (pos0-i >= 0) \
-          and (array0[pos0-i] > threshold) \
-          and (array0[pos0-i] <= current_value):
+        while (pos0-i >= 0) and \
+        (array0[pos0-i] > threshold) and \
+        (array0[pos0-i] <= current_value):
             current_value = array0[pos0 - i]
             i += 1
-        if i > enlx: i = enlx +1
+        if i > enlx: 
+            i = enlx +1
         range_negative = pos0 -i+1
     else:
         range_negative = pos0

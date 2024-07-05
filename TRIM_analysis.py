@@ -2,45 +2,41 @@
 """
 Created on Wed Sep 13 11:36:24 2023 
 @uthor: James Ma
-For picking slices from 3D arraya rbitarily without using timetraces. 
-(including time T as 3rd axis) 
-重新选择 distz0; 排除非连续的三帧以下的部分; 处理多颗粒同时闪烁的情况
+    For picking slices from 3D array arbitarily impliedly using timetraces. 
+
+V20240429:重新选择 distz0; 排除非连续的三帧以下的部分; 处理多颗粒同时闪烁的情况. 
+V20240704:格式规范, 使用typing进行类型标注. 
 """ 
 
-import sys, os, re, warnings; import numpy as np
-import tifffile as tifile
+import os, re
+import numpy as np; import tifffile as tifile
+import scipy.signal as signal
 
 
-from   scipy.ndimage import maximum_filter,\
-                            gaussian_filter
+from scipy.ndimage import gaussian_filter
 
-import scipy.signal  as signal
-import matplotlib.pyplot as plt
+if __name__=='__main__':
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    os.chdir(script_dir)
+    
+from utils__toolbox import \
+imloc_max, sci_opt_fit, consec_T, consec_T3, gen_circle
 
-from   scipy.optimize import OptimizeWarning
-warnings.simplefilter("ignore", 
-                      category=OptimizeWarning)
-sys.path.append('D:\\ProGrm\\python3\\library')
-from   super_resoToolBoxV1 import imloc_max,\
-       consec_T, consec_T3, generate_circle, fit_plot, sci_opt_fit
 
-root        =   'G:\\data2024'
-data        =   '\\20240220_2'
-targ        =           '77d0'
-target      =   targ + 'stack'
-tarmrk      =   targ + 'stamark'
-Path   = root + data + '\\stack'
-loc    = "E:\\PrGm_tempfile" + data + targ
-if not os.path.exists(loc): os.mkdir(loc)
-os.chdir(loc)
-Path_Dat    =   loc + '\\Dat\\'
-if not os.path.exists(Path_Dat): 
-    os.mkdir(Path_Dat)
-# 使用正则表达式提取数字
-numbers     =   re.findall(r'\d+',targ)
-Filename    =   target + '.tif'
-Filemark    =   tarmrk + '.tif'
-im0 = np.float32(tifile.imread(Path+'\\'+Filename))
+Root        = 'G:\\data2024\\'
+Data        =            '20240220_2'
+Path        =  Root + Data +'\\stack'
+
+targ        = '53d0'
+numbers     =  re.findall(r'\d+',targ)
+Filename    =  targ + 'stack.tif'
+Filemark    =  targ + 'stamark.tif'
+
+Dat         =  Data +'_'+targ +'Dat\\'
+if not os.path.exists(Dat): 
+    os.mkdir(Dat)
+
+im0  = np.float32(tifile.imread(Path +'\\' +Filename))
 
 #%% ex:参数统一设置
 
@@ -63,25 +59,21 @@ thres1      = 9         #
 
 mx_filt0    = 3         # sigma of maximum filters(tz)
 # 此处取2仅对当前帧与+1帧做统一区域最大值滤波, 理想取值3
-mx_filt12   = int(np.ceil(enl)) # sigma of maximum filter(xy)
+mx_filt12   = int(np.ceil(enl)) 
+                        # sigma of maximum filter(xy)
 
 distA0      = 2         # tz glitches range
 distAs      = 5         # tz glitches search range
 distA12     = enl+1     # xy glitches range
 thres2      = thres0    # glitch two side matching
 
-frame_tr    = 4         # min frame to be a state
+frame_tr    = 3         # min frame to be a state
 distz0      = 30        # max frame to be a state
 distxy      = enl *0.8  # to judge the overlapping 
                         # range of light spots on xy axis
 
 radius      = int(ex+enl)
 int_dif     = 10
-# int_std     = lambda a : np.sqrt(a-95)/2 +0.3 # std error of state
-'''
-imlabel为后续校准漂移使用, 需要包含整个宽场区域; 
-im主要是局部的对象点
-'''
 slice_z     = slice(0, -1)
 im0         = im0[slice_z]
 
@@ -107,14 +99,14 @@ im = im0[
 #         int(Center_y-width):int(Center_y+width),
 #         int(Center_x-width):int(Center_x+width)]
 
-# Center_x2    = 1
-# Center_y2    = 2
-# width2       = 3
-# imtr = im[
-#         :,
-#         int(Center_y2-width2):int(Center_y2+width2),
-#         int(Center_x2-width2):int(Center_x2+width2)]
-# Attest = np.mean(imtr,axis=(1,2))
+Center_x2    = 72
+Center_y2    = 54
+width2       = 37
+imtr = im[
+        :,
+        int(Center_y2-width2):int(Center_y2+width2),
+        int(Center_x2-width2):int(Center_x2+width2)]
+Attest = np.mean(imtr,axis=(1,2))
 
 ###############################################################################
 import time
@@ -127,9 +119,9 @@ drift_stp   = 20    # 漂移校准步长
 mark_num    = 1     # 校准标记个数
 drift_stm   = [None] *mark_num
 Pmrk        = [None] *mark_num
-Pmrk[0]     = root +data +'\\driftmark5V'
-# Pmrk[1]     = root +data +'\\driftmark2'
-# Pmrk[2]     = root +data +'\\driftmark3'
+Pmrk[0]     = Root +Data +'\\driftmark5V'
+# Pmrk[1]     = Root +Data +'\\driftmark2'
+# Pmrk[2]     = Root +Data +'\\driftmark3'
 
 for j in range(0, mark_num):    
     imlabel = np.float32(tifile.imread(Pmrk[j]+'\\'+Filemark))[:,0:28,0:28]
@@ -193,9 +185,9 @@ Adrift_xy = drift_stm[0]
 
 # drift_stm   = [None] *mark_numb
 # Pmrk        = [None] *mark_numb
-# Pmrk[0]     = root +data +'\\driftmark1s'
-# Pmrk[1]     = root +data +'\\driftmark2s'
-# Pmrk[2]     = root +data +'\\driftmark3V'
+# Pmrk[0]     = Root +Data +'\\driftmark1s'
+# Pmrk[1]     = Root +Data +'\\driftmark2s'
+# Pmrk[2]     = Root +Data +'\\driftmark3V'
 
 # for j in range(0, mark_numb):    
 #     drift_stm[j] = []
@@ -272,15 +264,13 @@ shape1  = np.shape(imgd)
 slice_p, posp = imloc_max(imgd,  thres0, thres1, mx_filt0, mx_filt12)
 slice_n, posn = imloc_max(imgd, -thres0, thres1, mx_filt0, mx_filt12)
 
-#%% 1.2.
+##%% 1.2.
 def blink_mark (slice_, max_pos, enl0=enl):
     '''
     prooerties: 
-    centr   # 中心位置  rng     # 时间中心
-    spots   # 光斑图貌  std     # 拟合误差    
+        centr: 中心位置  rng: 时间中心  spots: 光斑图貌  std: 拟合误差    
     断点标记分类：
-        1.硬断点(范围过大 or 轮廓异常) 
-        2.信噪比低(拟合失败)  3.范围过小  4.靠近边缘 
+        1.硬断点(范围过大 or 轮廓异常) 2.信噪比低(拟合失败)  3.范围过小  4.靠近边缘 
     '''
     Avent0 = []
     for j, (min_coord, max_coord) in enumerate(slice_):
@@ -314,22 +304,22 @@ def blink_mark (slice_, max_pos, enl0=enl):
              and cntr0[0]+(enl0)<=shape1[1]-1 and cntr0[1]+(enl0)<=shape1[2]-1): 
             brk = 4; std = 'None'   
         if brk <= 1:
-            ppcc = sci_opt_fit(spotA, pixel_size, 7.5)
+            ppcc = sci_opt_fit(spotA, pixel_size, 4.6)
             popt = ppcc[0]
             perr = ppcc[2]
-            if ppcc[1] == 'fail': brk = 2; std = 'Wrong'
+            if ppcc[1] =='fail': brk = 2; std ='Wrong'
             else:
                 # 此处绘图方便检查        
-                # fit_plot(spotA, popt, pixel_size, show=1)
+                # fit_plot(spotA, popt, pixel_size, show =1)
                 std     = sum(perr[1 :3])
-                # if  np.all(std <1): 
-                cntr0   = np.array([popt[2]+max(min_coord[1]-ex,0), 
-                                    popt[1]+max(min_coord[2]-ex,0)])
+                if np.all(std < 1): 
+                    cntr0 = np.array([popt[2]+max(min_coord[1]-ex,0), 
+                                     popt[1]+max(min_coord[2]-ex,0)])
         item000 = {}        
-        item000['slc'] = slice_[j]
-        item000['brk'] = brk
-        item000['zng'] = ng 
-        item000['std'] = std
+        item000['slc']  = slice_[j]
+        item000['brk']  = brk
+        item000['zng']  = ng 
+        item000['std']  = std
         # item00['spots'] = spotA
         item000['glced'] = False
         item000['centr'] = np.append(tz,cntr0)
@@ -350,120 +340,74 @@ print("time consuming: {:.2f}s".format(end_time1 - start_time))
 ###############################################################################
 
 #%% 2. 标记大型毛刺
-# # 具体为标记方块区域, 后续TR经过方块时排除标记True占比大于10%的帧
-# centrn      = np.array([item['centr'] for item in Aventn ])
-# # 标记配对区域
-# marked_id   = np.full_like(im,fill_value=False, dtype=bool)
-
-# def pairing(itm0, itm1):
-#     cntrz0 = np.int32(itm0['centr'])[0]
-#     cntrz1 = np.int32(itm1['centr'])[0]
-#     z0 = np.floor(cntrz0 -itm0['zng'] -itm1['zng'] -distA0)
-#     z1 = np.ceil (cntrz0 +itm0['zng'] +itm1['zng'] +distA0+1)
-#     z_range = range(np.int32(z0), np.int32(z1))
-    
-#     if cntrz1 in z_range:
-#         li  = np.array(itm0['slc'])
-#         lii = np.array(itm1['slc'])
-#         lmi = np.min(np.vstack((li[0],lii[0])),axis=0)
-#         lma = np.max(np.vstack((li[1],lii[1])),axis=0)
-#         spoti = np.sum(imdi[li[0][0]:li[1][0]+1,
-#                             lmi[1]:  lma[1]+1, 
-#                             lmi[2]:  lma[2]+1],axis=0) 
-#         spotii= np.sum(imdi[lii[0][0]:lii[1][0]+1,
-#                             lmi[1]:  lma[1]+1, 
-#                             lmi[2]:  lma[2]+1],axis=0)
-#         # FIXME: 此处应该更全面详尽比较这两帧的区别
-#         diff = np.abs(np.mean(spoti+spotii)) 
-#         area = marked_id[lmi[0]+1:lma[0]+1, lmi[1]:lma[1]+1, lmi[2]:lma[2]+1]
-#         if diff < thres2: return diff, area 
-    
-
-# for item00 in Aventp:
-#     center_z,center_y,center_x =np.int32(item00['centr'])
-#     x_range = range(center_x-distA12, center_x+distA12+1)
-#     y_range = range(center_y-distA12, center_y+distA12+1)  
-    
-#     locidxy = np.where((centrn[:, 0] > center_z -distAs)
-#                       &(centrn[:, 0] < center_z +distAs)
-#                       &(centrn[:, 1] >=np.floor(center_y -distA12))
-#                       &(centrn[:, 1] <=np.ceil (center_y +distA12))
-#                       &(centrn[:, 2] >=np.floor(center_x -distA12))
-#                       &(centrn[:, 2] <=np.ceil (center_x +distA12)))
-#     if len(locidxy[0]) == 0: continue
-#     z_value     = np.int32(centrn[locidxy, 0]).T
-#     locidgrt    = np.where(z_value >= center_z)[0]
-#     pairn       = 0
-#     if len(locidgrt) != 0:
-#         locid1      = np.argmin(z_value[locidgrt])
-#         locid11     = locidgrt  [locid1]
-#         locidz1     = locidxy[0][locid11]
-#         item11      = Aventn[locidz1]
-#         if not item11['glced']: 
-#             try: 
-#                 diff1, _area1 = pairing(item00, item11)
-#                 pairn += 1
-#             except: pass
-#     locidles   = np.where(z_value <= center_z)[0]
-#     if len(locidles) != 0:
-#         locid2      = np.argmax(z_value[locidles])
-#         locid22     = locidles  [locid2]
-#         locidz2     = locidxy[0][locid22]
-#         item12      = Aventn[locidz2]
-#         if not item12['glced']: 
-#             try: 
-#                 diff2, _area2 = pairing(item00, item12)
-#                 pairn += 2
-#             except: pass
-#     if   pairn == 0: continue
-#     elif pairn == 1 or (pairn ==3 and diff1<=diff2): 
-#         item00['glced'] = True; item11['glced'] = True
-#         _area1 = True
-#     elif pairn == 2 or (pairn ==3 and diff1> diff2): 
-#         item00['glced'] = True; item12['glced'] = True
-#         _area2 = True
-
-# # marked_im   = np.ma.masked_array(im, marked_id)
-
-#%% 2. 标记大型毛刺
 # 具体为标记方块区域, 后续TR经过方块时排除标记True占比大于10%的帧
-
-centrn  = np.array([item['centr'] for item in Aventn ])
-
+centrn      = np.array([item['centr'] for item in Aventn ])
 # 标记配对区域
-marked_id = np.full_like(im,fill_value=False, dtype=bool)
+marked_id   = np.full_like(im,fill_value=False, dtype=bool)
 
-for i, item00 in enumerate(Aventp):
+def pairing(itm0, itm1):
+    cntrz0 = np.int32(itm0['centr'])[0]
+    cntrz1 = np.int32(itm1['centr'])[0]
+    z0 = np.floor(cntrz0 -itm0['zng'] -itm1['zng'] -distA0)
+    z1 = np.ceil (cntrz0 +itm0['zng'] +itm1['zng'] +distA0+1)
+    z_range = range(np.int32(z0), np.int32(z1))
+    
+    if cntrz1 in z_range:
+        li  = np.array(itm0['slc'])
+        lii = np.array(itm1['slc'])
+        lmi = np.min(np.vstack((li[0],lii[0])),axis=0)
+        lma = np.max(np.vstack((li[1],lii[1])),axis=0)
+        spoti = np.sum(imdi[li[0][0]:li[1][0]+1,
+                            lmi[1]:  lma[1]+1, 
+                            lmi[2]:  lma[2]+1],axis=0) 
+        spotii= np.sum(imdi[lii[0][0]:lii[1][0]+1,
+                            lmi[1]:  lma[1]+1, 
+                            lmi[2]:  lma[2]+1],axis=0)
+        # FIXME: 此处应该更全面详尽比较这两帧的区别
+        diff = np.abs(np.mean(spoti+spotii)) 
+        slca = [slice(lmi[0]+1,lma[0]+1), slice(lmi[1],lma[1]+1), slice(lmi[2],lma[2]+1)]
+        if diff < thres2: return diff, slca 
+    
+for item00 in Aventp:
+    if item00['brk']==1: continue
     center_z,center_y,center_x =np.int32(item00['centr'])
     x_range = range(center_x-distA12, center_x+distA12+1)
-    y_range = range(center_y-distA12, center_y+distA12+1)    
-    localid = np.where((centrn[:,0]>center_z-distAs)
-                      &(centrn[:,0]<center_z+distAs))[0]   
-    for ii in localid:
-        item01 = Aventn[ii]
-        if item01['glced']: continue
-        z0 = np.floor(center_z -item00['zng'] -item01['zng'] -distA0)
-        z1 = np.ceil (center_z +item00['zng'] +item01['zng'] +distA0+1)
-        z_range = range(np.int32(z0), np.int32(z1))
-        
-        z, y, x = np.int32(centrn[ii])
-        if x in x_range and y in y_range and z in z_range:
-            li  = np.array(item00['slc'])
-            lii = np.array(item01['slc'])
-            lmi = np.min(np.vstack((li[0],lii[0])),axis=0)
-            lma = np.max(np.vstack((li[1],lii[1])),axis=0)
-            spoti = np.sum(imdi[li[0][0]:li[1][0]+1,
-                                lmi[1]:  lma[1]+1, 
-                                lmi[2]:  lma[2]+1],axis=0) 
-            spotii= np.sum(imdi[lii[0][0]:lii[1][0]+1,
-                                lmi[1]:  lma[1]+1, 
-                                lmi[2]:  lma[2]+1],axis=0)
-            # FIXME: 此处应该更全面详尽比较这两帧的区别
-            if np.abs(np.mean(spoti+spotii)) < thres2: 
-                item00['glced'] = True
-                item01['glced'] = True
-                marked_id[lmi[0]+1:lma[0]+1, lmi[1]:lma[1]+1, lmi[2]:lma[2]+1] =True
-                break
+    y_range = range(center_y-distA12, center_y+distA12+1)  
+    locidxy = np.where((centrn[:, 0] > center_z -distAs)
+                      &(centrn[:, 0] < center_z +distAs)
+                      &(centrn[:, 1] >=np.floor(center_y -distA12))
+                      &(centrn[:, 1] <=np.ceil (center_y +distA12))
+                      &(centrn[:, 2] >=np.floor(center_x -distA12))
+                      &(centrn[:, 2] <=np.ceil (center_x +distA12)))
+    if len(locidxy[0]) == 0: continue
+    z_value     = np.int32(centrn[locidxy, 0]).T
+    locidgrt    = np.where(z_value >= center_z)[0]
+    pairn       = 0
+    if len(locidgrt) != 0:
+        locid1      = np.argmin(z_value[locidgrt])
+        locid11     = locidgrt  [locid1]
+        locidz1     = locidxy[0][locid11]
+        item11      = Aventn[ locidz1]
+        if (not item11['glced']) and item11['brk'] !=1: 
+            try: diff1, _slc1 = pairing(item00, item11); pairn += 1
+            except: pass
+    locidles   = np.where(z_value <= center_z)[0]
+    if len(locidles) != 0:
+        locid2      = np.argmax(z_value[locidles])
+        locid22     = locidles[locid2]
+        locidz2     = locidxy[0][locid22]
+        item12      = Aventn [locidz2]
+        if (not item12['glced']) and item12['brk'] !=1: 
+            try: diff2, _slc2 = pairing(item00, item12); pairn += 2
+            except: pass
+    if   pairn == 0: continue
+    elif pairn == 1 or (pairn ==3 and diff1<=diff2): 
+        item00['glced'] = True; item11['glced'] = True
+        marked_id[_slc1[0], _slc1[1], _slc1[2]] = True
+    elif pairn == 2 or (pairn ==3 and diff1> diff2): 
+        item00['glced'] = True; item12['glced'] = True
+        marked_id[_slc2[0], _slc2[1], _slc2[2]] = True
+
 # marked_im   = np.ma.masked_array(im, marked_id)
 
 ###############################################################################
@@ -480,12 +424,13 @@ centrnT = np.array([item['centr'] for item in eventnT])
 atzp1 = centrpT[:,0]
 atzn1 = centrnT[:,0]
 
-#%% 作为截断事件的点
+##%% 作为截断事件的点
 cntrAll = np.vstack((centrpT, centrnT))
 eventpnT= eventpT + eventnT
 
 def fig_spots(event):
     for item1 in event:
+        if item1['brk']==1: continue
         center_z, center_y, center_x =\
                           np.int32(item1['centr'])
         x_range1 = np.int32(center_x -distxy)
@@ -516,7 +461,7 @@ def fig_spots(event):
             id111   = itmcid[id11]
             d4      = eventpnT[id111]['slc'][0][0]
         except ValueError:
-            d4 = min(center_z +distz0,shape1[0]+1) 
+            d4 = min(center_z +distz0, shape1[0]) 
             
         idless      = np.where(itmc < center_z)[0]
         try:
@@ -525,8 +470,7 @@ def fig_spots(event):
             id222   = itmcid[id22]
             d1      = eventpnT[id222]['slc'][1][0]+1
         except ValueError:
-            d1  = center_z -distz0
-            if d1 <0: d1 =0        
+            d1 = max(center_z -distz0, 0)
         slitc   = item1['slc']
         d2      = slitc [0][0]
         d3      = slitc [1][0]+1
@@ -539,7 +483,8 @@ def fig_spots(event):
         item['excitation'] = int(numbers[0])
         item['abort' ] = 0 
         item['rng_t0'] = [d1,d2,d3,d4]
-        item['cnt_12'] = item1['centr'] [1:]
+        item['nframe'] = [d2-d1,d4-d3] 
+        item['cnt_12'] = item1['centr'][1:]
         Avent1.append(item)
         
 Avent1  = []                  
@@ -567,7 +512,7 @@ for item0 in Avent1:
     # 制作mask: 0代表无关区域 1代表拟合区域 2代表边缘区域
     # 初始化maski, 成品mask1
     maski   = np.zeros(shape1[1:]) 
-    x_circle, y_circle = generate_circle(item0['cnt_12'], radius, shape1)
+    x_circle, y_circle = gen_circle(item0['cnt_12'], radius, shape1)
     maski[y_circle, x_circle] = 1
     ind_1   = np.where(maski==1) 
     Visited = np.zeros(shape1[1: ], dtype=bool)
@@ -593,8 +538,7 @@ for item0 in Avent1:
     # imnsk   = im[d1:d4+1, int(item0['cnt_12'][0]-radius2):
     #                       int(item0['cnt_12'][0]+radius2), 
     #                       int(item0['cnt_12'][1]-radius2):
-    #                       int(item0['cnt_12'][1]+radius2)
-    #             ].copy()
+    #                       int(item0['cnt_12'][1]+radius2)].copy()
     
     len_    = len(imspt)
     # 用于标记该帧是否采用
@@ -633,8 +577,7 @@ def std_ix(xi, intx, dd):
     stdx = np.std(np.abs(ditx))
     try:
         ixa = np.where(np.abs(ditx)>2*stdx)[0]
-        ixx = [ix0 for ix0 in ixa 
-               if ix[ix0+1]-ix[ix0]>1 and ix[ix0]>=dd+4][0]
+        ixx = [ix0 for ix0 in ixa if ix[ix0+1]-ix[ix0]>1 and ix[ix0]>=dd+4][0]
     except IndexError:
         return xi
     return [False if i >= ix[ixx]+1 else elem for i, elem in enumerate(xi)]
@@ -709,8 +652,8 @@ for item1 in Avent1:
     # vlC = np.sum(imintt[x0]-95) +np.sum(imintt[x1]-95)
     vlC = np.abs(np.sum(imintt[x0]-95)*np.count_nonzero(x1)\
                 -np.sum(imintt[x1]-95)*np.count_nonzero(x0))
-    if int0>int1: spt = st0 -st1
-    else:         spt = st1 -st0
+    if int0>int1: spt = st0 -st1; item1['SpotsD'] = st1
+    else:         spt = st1 -st0; item1['SpotsD'] = st0
     
     # Ant_id.append(ii); 
     item1['validC'] = vlC
@@ -736,14 +679,15 @@ print("time consuming: {:.2f}s".format(end_time4 - end_time3))
 ###############################################################################
 
 #%%5. 拟合与画图
-# Adexi_arr = []
+
 ii = 1
-for item2 in Avent1:
-    if item2['abort'] != 0 and item2['abort'] != 5: continue
+for iii,item2 in enumerate(Avent1):
+    if item2['abort'] != 0 and item2['abort'] != 5: 
+        continue
     min1, min2 = item2['corner']; Img = item2['SpotsB']
-    # Img = np.pad(Img, ((3, 3),(3, 3)), 
-    #              mode = 'constant', 
-    #              constant_values=Img[-1,-1])
+    # Img = np.pad(Img, ((3, 3), (3, 3)), 
+    #                   mode = 'constant', 
+    #                   constant_values=Img[-1,-1])
     P = sci_opt_fit(Img, pixel_size, 4.6)
     if P[1] =='fail': 
         item2['abort'] = 4
@@ -753,23 +697,25 @@ for item2 in Avent1:
     popt1 = P[0]; perr1 = P[2]
     item2['stdx']   = perr1[1]
     item2['stdy']   = perr1[2]
-    ellip   = abs(popt1[3]/popt1[4] -1)
+    item2['popt']   = popt1
+    x_com, y_com = Adrift_xy[int(item2['SpotsI'] //drift_stp)]
+    x = popt1[1] + min2 -3 - x_com
+    y = popt1[2] + min1 -3 - y_com
+    item2['x'] = x; item2['y'] = y
+    item2['sigma_xy'] = (popt1[3], popt1[4])
+    item2['drift'] = (x_com, y_com)
     
-    totjd   = perr1[1] +perr1[2]
-    if ellip< 0.1 and totjd< 0.2 and item2['validC'] >=100\
-       and perr1[1]< 0.1 and perr1[2]< 0.1:
-        item2['abort'] = 0
+    ellip   = abs(popt1[3]/popt1[4] -1)
+    totjd   = perr1[1] + perr1[2]
+    if  1 and\
+        item2['validC'] >=100 and ellip< 0.1 and\
+        totjd< 0.2 and perr1[1]< 0.1 and perr1[2]< 0.1:
         # 此处绘图方便检查        
-        # fit_plot(Img, popt1, pixel_size, targ, 
-        #              iii, 'No0'+str('%03d'%ii))
+        # fit_plot(Img, popt1, pixel_size, targ, iii,
+        #                      'No0' + str('%03d'%ii))
         # ii += 1
         # 相对拟合图片中心的距离
-        x_com, y_com = Adrift_xy[int(item2['SpotsI'] //drift_stp)]
-        x = popt1[1] + min2 -3 - x_com
-        y = popt1[2] + min1 -3 - y_com
-        # Adexi_arr.append(iii)
-        item2['x']  = x; item2['y']  = y
-        item2['sigma_xy'] = (popt1[3], popt1[4])
+        pass
     else: item2['abort'] = 5
 
         
@@ -778,12 +724,12 @@ Position_x  = np.array([item['x']
 Position_y  = np.array([item['y'] 
                         for item in Avent1 if item['abort']==0]) 
 
-Posiperr_x  = np.array([item['stdx'] 
-                        for item in Avent1 if item['abort']==0]) 
-Posiperr_y  = np.array([item['stdy'] 
-                        for item in Avent1 if item['abort']==0]) 
-Weight_arr  = np.array([item['wght'] 
-                        for item in Avent1 if item['abort']==0]) 
+# Posiperr_x  = np.array([item['stdx'] 
+#                         for item in Avent1 if item['abort']==0]) 
+# Posiperr_y  = np.array([item['stdy'] 
+#                         for item in Avent1 if item['abort']==0]) 
+# Weight_arr  = np.array([item['wght'] 
+#                         for item in Avent1 if item['abort']==0]) 
 
 aXY     = np.vstack((Position_x, Position_y)).T
 # dXY     = np.vstack((Posiperr_x, Posiperr_y))
@@ -792,8 +738,7 @@ aXY     = np.vstack((Position_x, Position_y)).T
 # adXYT   = np.vstack((aXYT,       AdXY      )).T
 
 Avent2  = [item for item in Avent1 if item['abort']==0]
-# import pickle
-
-# Avent = pickle.load(open("E:\\PrGm_tempfile\\Avent.p","rb"))
-# Avent+=Avent11
-# pickle.dump(Avent,  open("E:\\PrGm_tempfile\\Avent.p","wb"))
+import pickle
+Avent   = pickle.load(open("E:\\PrGm_tempfile\\Avent.p", "rb"))
+Avent  += Avent2
+pickle.dump(Avent, open("E:\\PrGm_tempfile\\Avent.p", "wb"))

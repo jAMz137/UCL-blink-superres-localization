@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 """
-Created on Wed Sep 13 11:36:24 2023 
 @uthor: James Ma
     For picking slices from 3D array arbitarily impliedly using timetraces. 
 
-V20240429:重新选择 distz0; 排除非连续的三帧以下的部分; 处理多颗粒同时闪烁的情况. 
+V20240429:重新选择 frame_max; 排除非连续的三帧以下部分; 处理多颗粒同时闪烁的情况. 
 V20240704:格式规范, 使用typing进行类型标注. 
 """ 
 
@@ -16,8 +14,7 @@ if __name__ == '__main__':
     script_dir =os.path.dirname(os.path.realpath(__file__))
     os.chdir(script_dir)   
 
-from utils_toolbox import\
-    imloc_max, sci_opt_fit, consec_T, consec_T3, gen_circle
+from utils_toolbox import sci_opt_fit
  
 from drift_correction import drift_correction
 from TRIM_events import blk_events
@@ -37,40 +34,52 @@ if not os.path.exists(Dat):
 
 im0  = np.array(np.float32(tifile.imread(Path +'\\' +Filename)))[ :-1]
 
+
 #%% ex:参数统一设置
 
-pixel_size = 1; bintime = 0.25 # s
+parameters  = {}
+parameters['excitation']  = numbers[0]
+parameters['thres0']  = 3.5 # float, 一个能与背景产生区分的值
+parameters['thres1']  = 9   # float, TR能被探测到的两帧间变化
 
-sigma_s = 5 *pixel_size     # float, key parameter, FWHM=2.355*σ
-enl     = int(2*sigma_s)    # int, spots_n/p outlier 
-                            # (max) enl, (min) enl/2
+parameters['pixel_size'] = 1; bintime = 0.25
+# float, sigma parameter, FWHM=2.355*σ
+sigma_s = 5 *parameters['pixel_size'] 
+# 
+# int, spots_n/p outlier, (max)enl (min)enl/2
+parameters['enl'] = int(2*sigma_s) 
+# int, Determining if the boundary is reached
+parameters['elx'] = int(np.ceil(sigma_s/2)+1) 
 
-ex      = int(np.ceil(sigma_s/2) +1) # int, 判断是否接触边界的范围
+# int, tz glitches search range
+parameters['dist_s']    = int(2.5*parameters['distA0']) 
+# int, glitches range
+parameters['dist00']    = int(bintime *8) 
+parameters['dist12']    = parameters['enl'] +1
+# float, glitch match threshold
+parameters['thres2']    = parameters['thres0'] 
 
-sigma_f     = sigma_s       # float, sigma of guassian filter(xy)
-sigma_t     = bintime*2     # float, sigma of guassian filter(tz)
+# int, min/max frame to be a state
+parameters['frame_min'] = 3             
+parameters['frame_max'] = 30
+# float, to judge the overlapping(xy)
+parameters['distxy']    = parameters['enl'] *0.8      
+                            
+# radius of spot mask to extract TR
+parameters['radius']   = int(parameters['elx'] 
+                            +parameters['enl'])   
 
-# 一个能与背景产生区分的值
-thres0      = 3.5           # float, blinking event marking
-# 这个参数实际上规定的的是TR中能被探测到的两帧之间变化
-thres1      = 9             # float 
+# float, sigma of guassian filter(xy& tz)
+sigma_t         = bintime*2
+sigma_f         = sigma_s       
+guasfilt_size   = (sigma_t, sigma_f, sigma_f)
 
-mx_filt0    = bintime*12    # float, sigma of maximum filter(tz)
-# 此处取2仅对当前帧与+1帧做统一区域最大值滤波, 理想取值3
-mx_filt12   = enl           # float, sigma of maximum filter(xy)
-mxfilt_size = (mx_filt0, mx_filt12, mx_filt12)
+# float, sigma of maximum  filter(xy& tz)
+# 此处2对当前帧与+1帧做最大值滤波, 理想取值3
+mx_filt0        = bintime*12    
+mx_filt12       = parameters['enl']
+parameters['mxfilt_size'] = (mx_filt0, mx_filt12, mx_filt12)
 
-distA0      = int(bintime*8)    # int, tz glitches range
-distAs      = int(2.5*distA0)   # int, tz glitches search range
-distA12     = enl+1             # int, xy glitches range
-thres2      = thres0            # float, glitch match threshold
-
-frame_tr    = 3             # int, min frame to be a state
-distz0      = 30            # int, max frame to be a state
-distxy      = enl *0.8      # float, to judge the overlapping 
-                            # range of light spots on xy axis
-
-radius      = int(ex+enl)   # radius of spot mask to extract TR
 
 #%% ex:截取研究区域
 '''
@@ -97,164 +106,20 @@ mark_names  = ['driftmark5V', 'driftmark2', 'driftmark3']
 Adrift_xy   = drift_correction(
             Root + Data, 
             Targ +'stamark.tif',
-            numbers[0], 
+            parameters['excitation'], 
             dft_step, mark_num,
-            pixel_size, 
+            parameters['pixel_size'], 
             mark_names).correlated()
         
 #%% 1. 整理闪烁事件点
 # 查找整个含时间的三维矩阵中发生闪烁的帧数坐标, 定位完整闪烁
 # 两个数组中分别记录了变暗与变亮两种事件
 
-img     = gaussian_filter( im, sigma = (sigma_t, sigma_f, sigma_f))
+img     = gaussian_filter( im, sigma = guasfilt_size)
 imgd    = np.diff(img,axis=0)
 imdi    = np.diff(im, axis=0)
-shape1  = np.shape(imgd)
 
-slice_p, posp = imloc_max(imgd,  thres0, thres1, mxfilt_size, enl)
-slice_n, posn = imloc_max(imgd, -thres0, thres1, mxfilt_size, enl)
-
-##%% 1.2.
-def blink_mark (slice_, max_pos, enl0=enl):
-    '''
-    prooerties: 
-        centr: 中心位置  rng: 时间中心  spots: 光斑图貌  std: 拟合误差    
-    断点标记分类：
-        1.硬断点(范围过大 or 轮廓异常) 2.信噪比低(拟合失败)  3.范围过小  4.靠近边缘 
-    '''
-    Avent0 = []
-    for j, (min_coord, max_coord) in enumerate(slice_):
-        brk     = 0
-        # 事件时间中心与时间范围
-        tz      = (max_coord[0] +1 +min_coord[0]) /2
-        ng      = (max_coord[0] +1 -min_coord[0]) /2    
-        # YX轴上的大小
-        shapR   = np.array([max_coord[1] -min_coord[1],
-                           max_coord[2] -min_coord[2]])
-        # 外扩ex光斑tz加和后形貌
-        spotA   = np.abs(np.sum(imdi[
-                            min_coord[0]: max_coord[0]+1,
-                            max(min_coord[1]-ex,0): max_coord[1]+ex+1, 
-                            max(min_coord[2]-ex,0): max_coord[2]+ex+1],axis=0))
-        # 无外扩光斑tz加和后形貌
-        spotB   = np.abs(np.sum(imgd[
-                            min_coord[0]: max_coord[0]+1,
-                            min_coord[1]: max_coord[1]+1,
-                            min_coord[2]: max_coord[2]+1],axis=0))
-        maxi0   = np.argwhere(spotB == np.max(spotB))[0]
-        cntr0   = maxi0 + np.array([min_coord[1],min_coord[2]])
-        cntr1   = max_pos[j][1:]
-        maxi1   = cntr1 - np.array([min_coord[1],min_coord[2]])
-        if np.any(np.abs(maxi1 - maxi0)>enl/2):
-            cntr0 = cntr1; maxi0 = maxi1; brk = 1
-        if np.any(np.abs(maxi0+1-shapR/2)>enl): brk = 1
-        if np.any(shapR < enl): 
-            brk = 3; std = 'None'
-        elif not(cntr0[0]-(enl0)>=0 and cntr0[1]-(enl0)>=0  
-             and cntr0[0]+(enl0)<=shape1[1]-1 and cntr0[1]+(enl0)<=shape1[2]-1): 
-            brk = 4; std = 'None'   
-        if brk <= 1:
-            ppcc = sci_opt_fit(spotA, pixel_size, 4.6)
-            popt = ppcc[0]
-            perr = ppcc[2]
-            if ppcc[1] =='fail': brk = 2; std ='Wrong'
-            else:
-                # 此处绘图方便检查        
-                # fit_plot(spotA, popt, pixel_size, show =1)
-                std     = sum(perr[1 :3])
-                if np.all(std < 1): 
-                    cntr0 = np.array([popt[2]+max(min_coord[1]-ex,0), 
-                                     popt[1]+max(min_coord[2]-ex,0)])
-        item000 = {}        
-        item000['slc']  = slice_[j]
-        item000['brk']  = brk
-        item000['zng']  = ng 
-        item000['std']  = std
-        # item00['spots'] = spotA
-        item000['glced'] = False
-        item000['centr'] = np.append(tz,cntr0)
-        Avent0.append(item000)  
-    return Avent0
-             
-eventp  = blink_mark(slice_p, posp)
-eventn  = blink_mark(slice_n, posn)
-
-Aventp  = [item for item in eventp if item['brk'] <= 2]
-Aventn  = [item for item in eventn if item['brk'] <= 2]
-atzp0 = np.array([item['centr'] for item in Aventp])[:,0]
-atzn0 = np.array([item['centr'] for item in Aventn])[:,0]
-
-
-#%% 2. 标记大型毛刺
-# 具体为标记方块区域, 后续TR经过方块时排除标记True占比大于10%的帧
-centrn      = np.array([item['centr'] for item in Aventn ])
-# 标记配对区域
-marked_id   = np.full_like(im,fill_value=False, dtype=bool)
-
-def pairing(itm0, itm1):
-    cntrz0 = np.int32(itm0['centr'])[0]
-    cntrz1 = np.int32(itm1['centr'])[0]
-    z0 = np.floor(cntrz0 -itm0['zng'] -itm1['zng'] -distA0)
-    z1 = np.ceil (cntrz0 +itm0['zng'] +itm1['zng'] +distA0+1)
-    z_range = range(np.int32(z0), np.int32(z1))
-    
-    if cntrz1 in z_range:
-        li  = np.array(itm0['slc'])
-        lii = np.array(itm1['slc'])
-        lmi = np.min(np.vstack((li[0],lii[0])),axis=0)
-        lma = np.max(np.vstack((li[1],lii[1])),axis=0)
-        spoti = np.sum(imdi[li[0][0]:li[1][0]+1,
-                            lmi[1]:  lma[1]+1, 
-                            lmi[2]:  lma[2]+1],axis=0) 
-        spotii= np.sum(imdi[lii[0][0]:lii[1][0]+1,
-                            lmi[1]:  lma[1]+1, 
-                            lmi[2]:  lma[2]+1],axis=0)
-        # FIXME: 此处应该更全面详尽比较这两帧的区别
-        diff = np.abs(np.mean(spoti+spotii)) 
-        slca = [slice(lmi[0]+1,lma[0]+1), slice(lmi[1],lma[1]+1), slice(lmi[2],lma[2]+1)]
-        if diff < thres2: return diff, slca 
-    
-for item00 in Aventp:
-    if item00['brk']==1: continue
-    center_z,center_y,center_x =np.int32(item00['centr'])
-    x_range = range(center_x-distA12, center_x+distA12+1)
-    y_range = range(center_y-distA12, center_y+distA12+1)  
-    locidxy = np.where((centrn[:, 0] > center_z -distAs)
-                      &(centrn[:, 0] < center_z +distAs)
-                      &(centrn[:, 1] >=np.floor(center_y -distA12))
-                      &(centrn[:, 1] <=np.ceil (center_y +distA12))
-                      &(centrn[:, 2] >=np.floor(center_x -distA12))
-                      &(centrn[:, 2] <=np.ceil (center_x +distA12)))
-    if len(locidxy[0]) == 0: continue
-    z_value     = np.int32(centrn[locidxy, 0]).T
-    locidgrt    = np.where(z_value >= center_z)[0]
-    pairn       = 0
-    if len(locidgrt) != 0:
-        locid1      = np.argmin(z_value[locidgrt])
-        locid11     = locidgrt  [locid1]
-        locidz1     = locidxy[0][locid11]
-        item11      = Aventn[ locidz1]
-        if (not item11['glced']) and item11['brk'] !=1: 
-            try: diff1, _slc1 = pairing(item00, item11); pairn += 1
-            except: pass
-    locidles   = np.where(z_value <= center_z)[0]
-    if len(locidles) != 0:
-        locid2      = np.argmax(z_value[locidles])
-        locid22     = locidles[locid2]
-        locidz2     = locidxy[0][locid22]
-        item12      = Aventn [locidz2]
-        if (not item12['glced']) and item12['brk'] !=1: 
-            try: diff2, _slc2 = pairing(item00, item12); pairn += 2
-            except: pass
-    if   pairn == 0: continue
-    elif pairn == 1 or (pairn ==3 and diff1<=diff2): 
-        item00['glced'] = True; item11['glced'] = True
-        marked_id[_slc1[0], _slc1[1], _slc1[2]] = True
-    elif pairn == 2 or (pairn ==3 and diff1> diff2): 
-        item00['glced'] = True; item12['glced'] = True
-        marked_id[_slc2[0], _slc2[1], _slc2[2]] = True
-
-# marked_im   = np.ma.masked_array(im, marked_id)
+Events = blk_events(imdi, imgd, parameters)
 
 ########################################################################
 end_time1 = time.time()
@@ -263,10 +128,10 @@ print("time consuming: {:.2f}s".format(end_time1 - start_time))
 
 #%% 3. 定位前后的置信帧
 
-eventpT = [item for item in Aventp if not item['glced']]
-eventnT = [item for item in Aventn if not item['glced']]
-centrpT = np.array([item['centr'] for item in eventpT])
-centrnT = np.array([item['centr'] for item in eventnT])
+eventpT = [item for item in Events[0] if not item.glced]
+eventnT = [item for item in Events[1] if not item.glced]
+centrpT = np.array([item.centr for item in eventpT])
+centrnT = np.array([item.centr for item in eventnT])
 atzp1 = centrpT[:,0]
 atzn1 = centrnT[:,0]
 
@@ -284,6 +149,10 @@ Imspt:  数据备选的区间;   Imint1:  对应区间TR
 '''
 fig_spots(Aventp )
 fig_spots(eventnT)
+
+
+
+
 #%% 4. intTR与tar_area
 # radius2 = 5
 ...

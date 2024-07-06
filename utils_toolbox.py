@@ -58,7 +58,8 @@ def _Gaussian2D2(xy, a, x0, y0, sigma_x, sigma_y, offset):
     r = a*np.exp(-((x-x0)**2/(2*sigma_x**2)+(y-y0)**2/(2*sigma_y**2)))+offset
     return r.ravel()    
 
-def sci_opt_fit(Image1,pixel_size,sigma_xy):
+
+def sci_opt_fit(Image1: np.ndarray, pixel_size: float, sigma_xy: float):
     c0      = Image1.shape[0]
     c1      = Image1.shape[1]
     axis0   = np.linspace(0,c1-1,c1)*pixel_size
@@ -73,8 +74,7 @@ def sci_opt_fit(Image1,pixel_size,sigma_xy):
     ini_guess1  = (Image_max1, Pos_x1*pixel_size, 
                    Pos_y1*pixel_size, 
                    pixel_size*sigma_xy, 
-                   pixel_size*sigma_xy, Image_min1)
-    
+                   pixel_size*sigma_xy, Image_min1) 
     try:
         popt1, pcov1 = opt.curve_fit(_Gaussian2D2, 
                                      xy, 
@@ -86,12 +86,13 @@ def sci_opt_fit(Image1,pixel_size,sigma_xy):
         # RuntimeError: Optimal parameters not found: Number of calls to function 
         # has reached maxfev = 1600.
         # OptimizeWarning: Covariance of the parameters could not be estimated
-        return 0,hint,0
+        return [], hint, []
     if popt1[1]<0 or popt1[1]>c1 or popt1[2]<0 or popt1[2]>c0: hint='fail'
     else: hint='success'
     perr = np.sqrt(np.diag(pcov1))
-    
-    return popt1,hint,perr
+    return popt1, hint, perr
+
+
 
 def fit_plot(Image0, popt0, pixel_size, filename='test0000', ix=0, labelp='', show = 0):
     c0 = Image0.shape[0];  c1 = Image0.shape[1]
@@ -139,7 +140,8 @@ def fit_plot(Image0, popt0, pixel_size, filename='test0000', ix=0, labelp='', sh
 #%% 密度矩阵操作函数
 
 def imloc_max(matrix: np.ndarray, tr0: float, tr1:float, 
-              win_size: tuple, enl0: int) -> tuple[list[tuple[np.ndarray,np.ndarray]], list[np.ndarray]]: 
+              win_size: tuple, enl0: int)\
+    -> tuple[list[tuple[np.ndarray,np.ndarray]], list[np.ndarray]]: 
     if tr0 < 0: tr0=-tr0; matrix = -matrix
     # coordinates = np.array(group)
     # min_coordi  = coordinates.min(axis=0) 
@@ -169,29 +171,30 @@ def imloc_max(matrix: np.ndarray, tr0: float, tr1:float,
         
         center_region2d = np.sum(matrix[range_z[0]: range_z[1]+1,
                                         max(0,pos[1]-1):pos[1]+2, 
-                                        max(0,pos[2]-1):pos[2]+2],axis=0)
-
-        
+                                        max(0,pos[2]-1):pos[2]+2],
+                                        axis=0)        
         average_value = np.mean(center_region2d)
-        
         if  average_value >= tr1:
-            result_range.append((np.array([range_z[0], 
-                                           range_y[0], 
-                                           range_x[0]]),
-                                 np.array([range_z[1], 
-                                           range_y[1], 
-                                           range_x[1]])))
+            result_range.append((np.array([
+                                    range_z[0], 
+                                    range_y[0],
+                                    range_x[0]]),
+                                 np.array([
+                                    range_z[1], 
+                                    range_y[1], 
+                                    range_x[1]])
+                                    ))
             result_pos.append(pos)
     return (result_range, result_pos)
 
-def mono_range(array0: np.ndarray, pos0: int, enlx: int, direction, threshold):
+def mono_range(array0: np.ndarray, pos0: int, 
+               enlx: int, direction: str, threshold):
     current_value = array0[pos0]
     # 寻找正方向的范围
     if direction in ['both', 'positive']:
         i = 1
-        while (pos0 +i < array0.shape[0]) and \
-        (array0[pos0 +i] >  threshold) and \
-        (array0[pos0 +i] <= current_value):
+        while (pos0 +i < array0.shape[0]) and (array0[pos0 +i] >threshold) and \
+                                              (array0[pos0 +i] <=current_value):
             current_value = array0[pos0 + i]
             i += 1
         if i > enlx: 
@@ -204,8 +207,7 @@ def mono_range(array0: np.ndarray, pos0: int, enlx: int, direction, threshold):
     # 寻找负方向的范围
     if direction in ['both', 'negative']:
         i = 1
-        while (pos0-i >= 0) and \
-        (array0[pos0-i] > threshold) and \
+        while (pos0-i >= 0) and (array0[pos0-i] > threshold) and \
         (array0[pos0-i] <= current_value):
             current_value = array0[pos0 - i]
             i += 1
@@ -223,12 +225,16 @@ def mono_range(array0: np.ndarray, pos0: int, enlx: int, direction, threshold):
 def gen_circle(center, radius, mshape):
     """生成以给定中心和半径的圆内的整数坐标点"""
     cy, cx = center
-    x_coords, y_coords = np.meshgrid(np.arange(max(int(cx-radius),0), 
-                                    min(int(cx+radius)+1,mshape[2])),
-                                     np.arange(max(int(cy-radius),0), 
-                                    min(int(cy+radius)+1,mshape[1])))
+    x_coords, y_coords = np.meshgrid(
+        np.arange(max(int(cx-radius),0), 
+                  min(int(cx+radius)+1,
+                  mshape[1])),
+        np.arange(max(int(cy-radius),0), 
+                  min(int(cy+radius)+1,
+                  mshape[0])))
 
-    distances   = np.sqrt((x_coords-cx)**2+(y_coords-cy)**2)
+    distances   = np.sqrt((x_coords-cx)**2 \
+                         +(y_coords-cy)**2)
     circle_mask = distances <= radius
 
     x_circle    = x_coords[circle_mask]

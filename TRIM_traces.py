@@ -3,12 +3,29 @@ from TRIM_events import blk_event, blk_events
 from utils_toolbox import consec_T, consec_T3, gen_circle
 
 class blk_trace():
-    def __init__(self):
-        item['excitation'] = int(numbers[0])
-        item['abort' ] = 0 
-        item['rng_t0'] = [d1,d2,d3,d4]
-        item['nframe'] = [d2-d1,d4-d3] 
-        item['cnt_12'] = item1['centr'][1:]
+    '''
+    abort:  0, 通过; 
+            1, Dint;
+            2, 3, 可用帧为0; 
+            4, 拟合失败; 
+            5, 拟合参数不通过.
+
+    glch_s:     是否来自毛刺;       
+    rng_t0:     tz时间节点
+    cnt_12:     xy中心坐标;         
+    corner:     区域位置标记
+    Dint:       中心事件闪烁幅度;     
+    Indn:       标记的无效帧
+    Imspt:      数据备选的区间;      
+    Imint1:     对应区间TR
+    '''
+    def __init__(self, excitation_, glitch_, centr_, TR_mrk_):
+        self. excitation = excitation_
+        self. abort = 0 
+        self. rng_t0 = TR_mrk_
+        self. nframe = [TR_mrk_[1]-TR_mrk_[0],
+                        TR_mrk_[3]-TR_mrk_[2]] 
+        self. cnt_12 = centr_
 
 class blk_traces():
     def __init__(self, Events: blk_events, im_: np.ndarray, parameters_: dict):
@@ -22,15 +39,18 @@ class blk_traces():
 
         self. centrAll  = np.vstack((centrpT, centrnT))
         self. EventpnT  = EventpT + EventnT
+
         self. Traces    = []
         self. fig_spots(Events[0])
         self. fig_spots(EventnT)
 
         self. TR_area()
 
-        self. Dint      = np.array([item.Dint for item in self.Traces]) 
-        self. int_dif   = np.mean(Dint[np.where(np.abs(Dint -np.mean(Dint)) 
-                                                            <2*np.std(Dint))])
+        self. Dint      = np.array([ item.Dint for item in self.Traces]) 
+        self. int_dif   = np.mean (self.Dint[np.where(
+                                    np.abs(self.Dint-np.mean(self.Dint)) 
+                                                 <2 *np.std (self.Dint)
+                                                    )])
         # int_dif = 10
 
 
@@ -85,14 +105,16 @@ class blk_traces():
             # if d2-d1<=0 or d4-d3<=0:
             if d2-d1<=frame_tr or d4-d3<=frame_tr: 
                 continue
-            item    = blk_trace(item1.glced, item1.centr[1:], [d1,d2,d3,d4])
+            item    = blk_trace(self.parameters['excitation'],
+                                item1.glced, item1.centr[1: ], 
+                                [d1,d2,d3,d4])
             self.Traces.append(item)                 
     
 
     def TR_area(self):
         radius = self.parameters['radius']
         for item0 in self.Traces:
-            d1, d2, d3, d4 = item0['rng_t0']
+            d1, d2, d3, d4 = item0.rng_t0
             # 制作mask: 0代表无关区域 1代表拟合区域 2代表边缘区域
             # 初始化maski, 成品mask1
             maski   = np.zeros(self.shape1[1:]) 
@@ -131,11 +153,11 @@ class blk_traces():
             ind_2   = np.array(np.where( maski ==2)).T
             # midval  = np.median(im[d1:d4+1, ind_2[:,0], 
             #                                 ind_2[:,1]], axis=1)
-            markn   = marked_id[d1:d4+1 ,min1:max1+1, min2:max2+1]
+            # markn   = marked_id[d1:d4+1 ,min1:max1+1, min2:max2+1]
             for k in range(len_):
-                falid_pt =  np.count_nonzero(markn[k])/\
-                                            markn[k].size*100
-                if falid_pt >= 10: indn[k] = False
+                # falid_pt =  np.count_nonzero(markn[k])/\
+                                            # markn[k].size*100
+                # if falid_pt >= 10: indn[k] = False
                 immsk[k, ind02[:,0], ind02[:,1]] = 95 #midval[k]
             immsk[immsk < 95] = 95
             imint1  = np.mean(immsk, axis=(1,2))
@@ -150,8 +172,7 @@ class blk_traces():
 
     
     # %%4.. 得到拟合图形
-    
-    # Ant_id  = []
+
     def std_ix(self, xi, intx, dd):
         ix   = np.where(xi)[0]
         ditx = np.diff(intx)

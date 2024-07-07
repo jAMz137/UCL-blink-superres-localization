@@ -139,14 +139,7 @@ atzn1 = centrnT[:,0]
 cntrAll = np.vstack((centrpT, centrnT))
 eventpnT= eventpT + eventnT
 
-'''
-abort: 0,通过 1,Dint 2,3,可用帧为0 4,拟合失败 5,拟合参数不通过
 
-glch_s:  是否来自毛刺;    rng_t0:  tz时间节点
-cnt_12:  xy中心坐标;    corner:  区域位置标记
-Dint:  中心事件闪烁幅度;   Indn:  mark_id标记的无效帧
-Imspt:  数据备选的区间;   Imint1:  对应区间TR
-'''
 fig_spots(Aventp )
 fig_spots(eventnT)
 

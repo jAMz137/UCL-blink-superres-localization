@@ -29,6 +29,7 @@ numbers     =  re.findall(r'\d+',Targ)
 Filename    =  Targ + 'stack.tif'
 
 Dat         =  Data +'_'+Targ +'Dat\\'
+
 if not os.path.exists(Dat): 
     os.mkdir(Dat)
 
@@ -94,10 +95,10 @@ im = im0[
         int(Center_y-width):int(Center_y+width),
         int(Center_x-width):int(Center_x+width)]
 
-########################################################################
+##################################################################
 import time
 start_time = time.time()
-########################################################################
+##################################################################
 
 #%% ex:漂移校准(correlated)
 dft_step    = 20    # 漂移校准步长
@@ -121,98 +122,71 @@ imdi    = np.diff(im, axis=0)
 
 Events = blk_events(imdi, imgd, parameters)
 
-########################################################################
+##################################################################
 end_time1 = time.time()
 print("time consuming: {:.2f}s".format(end_time1 - start_time))
-########################################################################
+##################################################################
 
 #%% 3. 定位前后的置信帧
 
-eventpT = [item for item in Events[0] if not item.glced]
-eventnT = [item for item in Events[1] if not item.glced]
-centrpT = np.array([item.centr for item in eventpT])
-centrnT = np.array([item.centr for item in eventnT])
-atzp1 = centrpT[:,0]
-atzn1 = centrnT[:,0]
+Intervals = blk_traces(Events, im, parameters)
 
-##%% 作为截断事件的点
-cntrAll = np.vstack((centrpT, centrnT))
-eventpnT= eventpT + eventnT
-
-
-fig_spots(Aventp )
-fig_spots(eventnT)
-
-
-
-
-#%% 4. intTR与tar_area
-# radius2 = 5
-...
-
-########################################################################
+##################################################################
 end_time2 = time.time()
 print("time consuming: {:.2f}s".format(end_time2 - end_time1))
-########################################################################
+##################################################################
 #%%5. 拟合与画图
 
 ii = 1
-for iii,item2 in enumerate(Avent1):
-    if item2['abort'] != 0 and item2['abort'] != 5: 
+for iii,item2 in enumerate(Intervals.Traces):
+    if item2.abort != 0 and item2.abort != 5: 
         continue
-    min1, min2 = item2['corner']; Img = item2['SpotsB']
+    min1, min2 = item2.corner; Img = item2.SpotsB
     # Img = np.pad(Img, ((3, 3), (3, 3)), 
     #                   mode = 'constant', 
     #                   constant_values=Img[-1,-1])
-    P = sci_opt_fit(Img, pixel_size, 4.6)
+    P = sci_opt_fit(Img, parameters['pixel_size'], 4.6)
     if P[1] =='fail': 
-        item2['abort'] = 4
-        item2['stdx'] = 'NaN'
-        item2['stdy'] = 'NaN'
+        item2.abort = 4
+        item2.stdx = 'NaN'
+        item2.stdy = 'NaN'
         continue
     popt1 = P[0]; perr1 = P[2]
-    item2['stdx']   = perr1[1]
-    item2['stdy']   = perr1[2]
-    item2['popt']   = popt1
-    x_com, y_com = Adrift_xy[int(item2['SpotsI'] //dft_step)]
+    item2.stdx   = perr1[1]
+    item2.stdy   = perr1[2]
+    item2.popt   = popt1
+    x_com, y_com = Adrift_xy[int(item2.SpotsI //dft_step)]
     x = popt1[1] + min2 -3 - x_com
     y = popt1[2] + min1 -3 - y_com
-    item2['x'] = x; item2['y'] = y
-    item2['sigma_xy'] = (popt1[3], popt1[4])
-    item2['drift'] = (x_com, y_com)
+    item2.x = x; item2.y = y
+    item2.sigma_xy = (popt1[3], popt1[4])
+    item2.drift = (x_com, y_com)
     
     ellip   = abs(popt1[3]/popt1[4] -1)
     totjd   = perr1[1] + perr1[2]
     if  1 and\
-        item2['validC'] >=100 and ellip< 0.1 and\
-        totjd< 0.2 and perr1[1]< 0.1 and perr1[2]< 0.1:
+        item2.validC >=100 and ellip< 0.1 and\
+            totjd< 0.2 and perr1[1]< 0.1 and perr1[2]< 0.1:
         # 此处绘图方便检查        
         # fit_plot(Img, popt1, pixel_size, Targ, iii,
         #                      'No0' + str('%03d'%ii))
         # ii += 1
         # 相对拟合图片中心的距离
         pass
-    else: item2['abort'] = 5
+    else: item2.abort = 5
 
         
-Position_x  = np.array([item['x'] 
-                        for item in Avent1 if item['abort']==0]) 
-Position_y  = np.array([item['y'] 
-                        for item in Avent1 if item['abort']==0]) 
-
-# Posiperr_x  = np.array([item['stdx'] 
-#                         for item in Avent1 if item['abort']==0]) 
-# Posiperr_y  = np.array([item['stdy'] 
-#                         for item in Avent1 if item['abort']==0]) 
-# Weight_arr  = np.array([item['wght'] 
-#                         for item in Avent1 if item['abort']==0]) 
+Position_x  = np.array([item.x 
+                        for item in Intervals.Traces if item.abort==0]) 
+Position_y  = np.array([item.y 
+                        for item in Intervals.Traces if item.abort==0]) 
 
 aXY     = np.vstack((Position_x, Position_y)).T
 # dXY     = np.vstack((Posiperr_x, Posiperr_y))
 # AdXY    = np.mean  (dXY, axis=0)
 # aXYT    = np.vstack((aXY.T,      Weight_arr))
 # adXYT   = np.vstack((aXYT,       AdXY      )).T
-Avent2  = [item for item in Avent1 if item['abort']==0]
+Avent2  = [item for item in Intervals.Traces if item.abort==0]
 
 import pickle
 Avent = pickle.load(open("E:\\PrGm_tempfile\\Avent.p", "rb"))

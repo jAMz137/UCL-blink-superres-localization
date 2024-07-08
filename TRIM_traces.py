@@ -10,46 +10,78 @@ class blk_trace():
             4, 拟合失败; 
             5, 拟合参数不通过.
 
-    glch_s:     是否来自毛刺;       
-    rng_t0:     tz时间节点
-    cnt_12:     xy中心坐标;         
-    corner:     区域位置标记
-    Dint:       中心事件闪烁幅度;     
-    Indn:       标记的无效帧
-    Imspt:      数据备选的区间;      
-    Imint1:     对应区间TR
+    glitch_or_not:      是否来自毛刺;   
+    excitation:    
+    Imspt:              数据备选的区间;      
+    Imint:              对应区间TR
+    rng_t0:             tz时间节点
+    rng_ax:
+    cnt_12:             xy中心坐标;         
+    corner:             区域位置标记
+    Dint:               中心事件闪烁幅度;     
+    Indn:               标记的无效帧
+    weight:
+    ValidC:
+    SpotB:
     '''
     def __init__(self, excitation_, glitch_, centr_, TR_mrk_):
+        self. glitch_or_not  = glitch_
         self. excitation = excitation_
         self. abort = 0 
         self. rng_t0 = TR_mrk_
         self. nframe = [TR_mrk_[1]-TR_mrk_[0],
                         TR_mrk_[3]-TR_mrk_[2]] 
         self. cnt_12 = centr_
+        self. SpotsI = (TR_mrk_[3]+TR_mrk_[0])/2
+
+    @property
+    def Imint(self):
+        return self._imint
+
+    @Imint.setter
+    def Imint(self, intensity):
+        self._imint = intensity
+
+    @property
+    def Dint(self):
+        return np.abs(self.Imint[self. rng_t0[1]-self. rng_t0[0]] 
+                     -self.Imint[self. rng_t0[2]-self. rng_t0[0]])
+    
+    @property
+    def rng_ax(self):
+        return self._imint
+
+    @rng_ax.setter
+    def rng_ax(self, idxx):
+        self._rng_ax = idxx
+
+    @property
+    def weight(self):
+        return np.count_nonzero(self.rng_ax[0]) \
+                                + np.count_nonzero(self.rng_ax[1])
+    
 
 class blk_traces():
-    def __init__(self, Events: blk_events, im_: np.ndarray, parameters_: dict):
+    def __init__(self, Events_: blk_events, im_: np.ndarray, parameters_: dict):
+        self. glitch_id = Events_.glitch_id
         self. parameters = parameters_
         self. im = im_
         self. shape1 = np.shape(im_)
-        EventpT = [item for item in Events[0] if not item.glced]
-        EventnT = [item for item in Events[1] if not item.glced]
+        EventpT = [item for item in Events_[0] if not item.glced]
+        EventnT = [item for item in Events_[1] if not item.glced]
         centrpT = np.array([item.centr for item in EventpT])
         centrnT = np.array([item.centr for item in EventnT])
 
         self. centrAll  = np.vstack((centrpT, centrnT))
         self. EventpnT  = EventpT + EventnT
-
-        self. Traces    = []
-        self. fig_spots(Events[0])
-        self. fig_spots(EventnT)
+        self. Traces    = self. fig_spots(Events_[0])+ self. fig_spots(EventnT)
 
         self. TR_area()
 
-        self. Dint      = np.array([ item.Dint for item in self.Traces]) 
-        self. int_dif   = np.mean (self.Dint[np.where(
-                                    np.abs(self.Dint-np.mean(self.Dint)) 
-                                                 <2 *np.std (self.Dint)
+        Dltaint      = np.array([ item.Dint for item in self.Traces]) 
+        self. int_dif   = np.mean (Dltaint[np.where(
+                                    np.abs(Dltaint-np.mean(Dltaint)) 
+                                                 <2*np.std(Dltaint)
                                                     )])
         # int_dif = 10
 
@@ -58,6 +90,7 @@ class blk_traces():
         distxy = self.parameters['distxy']
         distz0 = self.parameters['distz0']
         frame_tr = self.parameters['frame_min']
+        Traces_ = []
         for item1 in Events_:
             if item1.brk_mrk ==1: continue
             center_z, center_y, center_x =\
@@ -108,7 +141,8 @@ class blk_traces():
             item    = blk_trace(self.parameters['excitation'],
                                 item1.glced, item1.centr[1: ], 
                                 [d1,d2,d3,d4])
-            self.Traces.append(item)                 
+            Traces_.append(item) 
+        return Traces_                
     
 
     def TR_area(self):
@@ -138,7 +172,7 @@ class blk_traces():
             mask1   = maski[min1:max1+1, min2:max2+1]
             # 用于最终的待拟合图片生成
             imspt   = self.im[d1:d4+1, min1:max1+1, min2:max2+1].copy()
-            item0['Imspt'] = imspt
+            item0. Imspt = imspt
             # 用于计算区域的亮度timetrace
             immsk   = self.im[d1:d4+1, min1:max1+1, min2:max2+1].copy()
             # imnsk   = im[d1:d4+1, int(item0['cnt_12'][0]-radius2):
@@ -153,22 +187,20 @@ class blk_traces():
             ind_2   = np.array(np.where( maski ==2)).T
             # midval  = np.median(im[d1:d4+1, ind_2[:,0], 
             #                                 ind_2[:,1]], axis=1)
-            # markn   = marked_id[d1:d4+1 ,min1:max1+1, min2:max2+1]
+            markn   = self.glitch_id[d1:d4+1 ,min1:max1+1, min2:max2+1]
             for k in range(len_):
-                # falid_pt =  np.count_nonzero(markn[k])/\
-                                            # markn[k].size*100
-                # if falid_pt >= 10: indn[k] = False
+                falid_pt =  np.count_nonzero(markn[k])\
+                                            /markn[k].size*100
+                if falid_pt >= 10: indn[k] = False
                 immsk[k, ind02[:,0], ind02[:,1]] = 95 #midval[k]
             immsk[immsk < 95] = 95
             imint1  = np.mean(immsk, axis=(1,2))
             # imint2  = np.mean(imnsk, axis=(1,2))
-            dint    = np.abs(imint1[d2 -d1] -imint1[d3 -d1])
-            
-            item0.Dint   = dint
-            item0.Indn   = indn
-            item0.corner = [min1,min2]
-            item0.Imint1 = imint1 
-            # item0.Imint2 = imint2 
+
+            item0. Imint  = imint1
+            item0. Indn   = indn
+            item0. corner = [min1,min2]
+            # item0. Imint2 = imint2 
 
     
     # %%4.. 得到拟合图形
@@ -197,7 +229,8 @@ class blk_traces():
             if item1.Dint >2*self.int_dif or item1.Dint < 0.3 *self.int_dif: 
                 item1.abort = 1; continue 
             flno  = 0;  flen  = 10;  flag  = False
-            d1, d2, d3, d4 = item1.rng_t0; imintt = item1.Imint1
+            d1, d2, d3, _   = item1.rng_t0
+            imintt  = item1.Imint
             int0    = imintt[d2-d1]; int00   = int0
             int1    = imintt[d3-d1]; int11   = int1
             len_    = len ( imintt); std00   = self.int_dif/5
@@ -250,7 +283,6 @@ class blk_traces():
         
             st0 = np.mean(item1.Imspt[x0], axis=0)
             st1 = np.mean(item1.Imspt[x1], axis=0)
-            wgi = np.count_nonzero(x0) + np.count_nonzero(x1)
             # vlC = np.sum(imintt[x0]-95) +np.sum(imintt[x1]-95)
             vlC = np.abs(np.sum(imintt[x0]-95)*np.count_nonzero(x1)\
                         -np.sum(imintt[x1]-95)*np.count_nonzero(x0))
@@ -258,12 +290,11 @@ class blk_traces():
             else:         spt = st1 -st0; item1.SpotsD = st0
             
             # Ant_id.append(ii); 
-            item1.validC = vlC
-            item1.rng_x0 =  x0
-            item1.rng_x1 =  x1
-            item1.wght  = wgi 
-            item1.SpotsB = spt 
-            item1.SpotsI = (d4+d1)/2
+            
+            item1. rng_ax    = np.array([x0, x1])
+            item1. validC    = vlC
+            item1. SpotsB    = spt 
+            
             
             # P = sci_opt_fit(spt, pixel_size,4.6)
             # if P[1] =='fail': print('ss')

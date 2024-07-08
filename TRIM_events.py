@@ -33,6 +33,7 @@ class blk_events():
                        parameters_: dict):
         self. imdi = imdi_
         self. imgd = imgd_
+        self. shape1 = np.shape(imgd_)
         self. parameters = parameters_
         slice_p, posp = imloc_max(imgd_,  
                                   parameters_['thres0'], 
@@ -47,14 +48,14 @@ class blk_events():
 
         self. events_p = self.get_event_with_mark(slice_p, posp)
         self. events_n = self.get_event_with_mark(slice_n, posn)
-        self.pair_glitch()
+        self. glitch_id = self.pair_glitch()
         
 
     def get_event_with_mark (self, slice_, maxpos) -> list[blk_event]:
         enl0 = self.parameters['enl']
         enl  = self.parameters['enl']
         elx  = self.parameters['elx']
-        shape1 = np.shape(self.imgd)
+        shape1 = self.shape1
         '''
         prooerties: 
             centr: 中心位置  rng: 时间中心  spots: 光斑图貌  std: 拟合误差    
@@ -167,7 +168,8 @@ class blk_events():
         distA12     = self.parameters['dist12']
         distAs      = self.parameters['dist_s']
         # 标记配对区域
-        # marked_id   = np.full_like(im,fill_value=False, dtype=bool)
+        shape2 = (self.shape1[0]+1, self.shape1[1], self.shape1[2])
+        marked_id = np.full(shape2, False, dtype=bool)
         for item00 in self.events_n:
             if item00.brk_mrk==1: continue
             center_z,center_y,center_x =np.array(np.int32(item00.centr))
@@ -210,9 +212,9 @@ class blk_events():
             if   pairn == 0: continue
             elif pairn == 1 or (pairn ==3 and diff1 <= diff2):  # type: ignore
                 item00.glced = True; item11.glced = True
-                # marked_id[_slc1[0], _slc1[1], _slc1[2]] = True
+                marked_id[_slc1[0], _slc1[1], _slc1[2]] = True
             elif pairn == 2 or (pairn ==3 and diff1 >  diff2):  # type: ignore
                 item00.glced = True; item12.glced = True
-                # marked_id[_slc2[0], _slc2[1], _slc2[2]] = True
-        
+                marked_id[_slc2[0], _slc2[1], _slc2[2]] = True
+        return marked_id
         # marked_im   = np.ma.masked_array(im, marked_id)

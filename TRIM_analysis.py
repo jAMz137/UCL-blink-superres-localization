@@ -18,7 +18,7 @@ from utils_toolbox import sci_opt_fit
  
 from drift_correction import drift_correction
 from TRIM_events import blk_events
-from TRIM_traces import blk_traces
+from TRIM_traces import blk_traces, blk_trace
 
 Root        = 'G:\\data2024\\'
 Data        =             '20240220_2'
@@ -138,35 +138,36 @@ print("time consuming: {:.2f}s".format(end_time2 - end_time1))
 #%%5. 拟合与画图
 
 ii = 1
-for iii,item2 in enumerate(Intervals.Traces):
+for iii, item2 in enumerate(Intervals.Traces):
+    item2: blk_trace
+    outfit = {}
     if item2.abort != 0 and item2.abort != 5: 
         continue
-    min1, min2 = item2.corner; Img = item2.SpotsB
+    min1, min2 = item2.corner; Img = item2.SpotB
     # Img = np.pad(Img, ((3, 3), (3, 3)), 
     #                   mode = 'constant', 
     #                   constant_values=Img[-1,-1])
     P = sci_opt_fit(Img, parameters['pixel_size'], 4.6)
-    if P[1] =='fail': 
+    outfit['result'] = 'fail'
+    if P[1] == 'fail': 
         item2.abort = 4
-        item2.stdx = 'NaN'
-        item2.stdy = 'NaN'
         continue
     popt1 = P[0]; perr1 = P[2]
-    item2.stdx   = perr1[1]
-    item2.stdy   = perr1[2]
-    item2.popt   = popt1
-    x_com, y_com = Adrift_xy[int(item2.SpotsI //dft_step)]
+    outfit['stdxy'] = [perr1[1], perr1[2]]
+    # outfit['popt' ] = popt1
+    x_com, y_com = Adrift_xy[int(item2.SpotI //dft_step)]
     x = popt1[1] + min2 -3 - x_com
     y = popt1[2] + min1 -3 - y_com
-    item2.x = x; item2.y = y
-    item2.sigma_xy = (popt1[3], popt1[4])
-    item2.drift = (x_com, y_com)
+    
+    outfit['sigma_xy'] = (popt1[3], popt1[4])
+    item2. xy = [x,y]
+    item2. drift = [x_com, y_com]
+    item2. fit_o = outfit
     
     ellip   = abs(popt1[3]/popt1[4] -1)
     totjd   = perr1[1] + perr1[2]
-    if  1 and\
-        item2.validC >=100 and ellip< 0.1 and\
-            totjd< 0.2 and perr1[1]< 0.1 and perr1[2]< 0.1:
+    if  item2.ValidC >=100 and ellip< 0.1 and\
+        totjd< 0.2 and perr1[1]< 0.1 and perr1[2]< 0.1:
         # 此处绘图方便检查        
         # fit_plot(Img, popt1, pixel_size, Targ, iii,
         #                      'No0' + str('%03d'%ii))

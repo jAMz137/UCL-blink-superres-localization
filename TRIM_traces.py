@@ -4,42 +4,53 @@ from utils_toolbox import consec_T, consec_T3, gen_circle
 
 class blk_trace():
     '''
-    abort:  0, 通过; 
-            1, Dint;
-            2, 3, 可用帧为0; 
-            4, 拟合失败; 
-            5, 拟合参数不通过.
+    abort:          0, 通过; 1, Dint;
+                    2, 3,  可用帧为0; 
+                    4, 拟合失败; 
+                    5, 拟合参数不通过.
 
     glitch_or_not:      是否来自毛刺;   
-    excitation:    
+    excitation:         激发对应的角度;
     Imspt:              数据备选的区间;      
-    Imint:              对应区间TR
-    rng_t0:             tz时间节点
-    rng_ax:
+    Imint:              对应区间TR;
+    rng_t0:             tz时间节点*4;
+    rng_at:             亮暗事件的有效帧标记;
     cnt_12:             xy中心坐标;         
-    corner:             区域位置标记
-    Dint:               中心事件闪烁幅度;     
-    Indn:               标记的无效帧
-    weight:
-    ValidC:
-    SpotB:
+    corner:             区域位置标记;
+    Indn:               标记的无效帧;
+    ValidC:             最终有效光子数;
+    SpotB:              最终待拟合光斑;
+
+    SpotI:              中心时间位置;
+    Dint:               主事件闪烁幅度; 
+    frame_wght:             帧数权重
     '''
     __slot__ = (
-        'glitch_or_not', 'excitation', 'Dint', 'Indn', 'SpotB',
+        'glitch_or_not', 'excitation', 'Indn', 'abort', 'weight'
+        'ValidC',  'SpotB',
          'Imspt',  'Imint', 
-        'rng_t0', 'rng_ax', 
-        'cnt_12', 'corner', 
-        'weight', 'ValidC', 
+        'rng_t0', 'rng_at', 
+        'cnt_12', 'corner', 'xy', 'fit_o', 'drift'
         )
-    def __init__( self, excitation_, glitchs_, centr_, TR_mrk_):
+    def __init__( self, excitation_: float, glitchs_: bool, 
+                        center_: np.ndarray, TR_mrk_: list[int]):
+        self. abort:int = 0 
         self. glitch_or_not = glitchs_
         self. excitation = excitation_
-        self. abort  = 0
         self. rng_t0 = TR_mrk_
-        self. cnt_12 = centr_
-        self. Imint:  np.ndarray
-        self. rng_ax: np.ndarray
-        
+        self. cnt_12 = center_
+
+        # self. rng_at:   np.ndarray[bool, np.dtype[np.bool_]]
+        self. Imint:    np.ndarray
+
+        # self. Imspt:    np.ndarray
+        # self. Indn:     np.ndarray[bool, np.dtype[np.bool_]]
+        self. ValidC:   float
+        self. SpotB:    np.ndarray
+        self. corner:   list[int]
+        self. xy:       list[float]
+        self. drift:    list[float]
+        self. fit_o:    dict
 
     @property
     def SpotI(self):
@@ -51,13 +62,17 @@ class blk_trace():
                      -self.Imint[self.rng_t0[2]-self.rng_t0[0]])
 
     @property
-    def weight(self):
-        return np.count_nonzero(self.rng_ax[0]) \
-                            + np.count_nonzero(self.rng_ax[1])
+    def frame_wght(self): return self.weight
+    @frame_wght.setter
+    def frame_wght(self, 
+                   rng_at_: np.ndarray[bool, np.dtype[np.bool_]]):
+        self. weight = np.count_nonzero(rng_at_[0]) \
+                                    +np.count_nonzero(rng_at_[1])
     
 
 class blk_traces():
-    def __init__(self, Events_: blk_events, im_: np.ndarray, parameters_: dict):
+    def __init__(self, Events_: blk_events, im_: np.ndarray, 
+                                            parameters_: dict):
         self. glitch_id = Events_.glitch_id
         self. parameters = parameters_
         self. im = im_
@@ -69,15 +84,15 @@ class blk_traces():
 
         self. centrAll  = np.vstack((centrpT, centrnT))
         self. EventpnT  = EventpT + EventnT
-        self. Traces    = self. fig_spots(Events_[0])+ self. fig_spots(EventnT)
+        self. Traces    = self. fig_spots(Events_[0])+ \
+                                         self. fig_spots(EventnT)
 
         self. TR_area()
 
         Dltaint      = np.array([ item.Dint for item in self.Traces]) 
         self. int_dif   = np.mean (Dltaint[np.where(
                                     np.abs(Dltaint-np.mean(Dltaint)) 
-                                                 <2*np.std(Dltaint)
-                                                    )])
+                                                < 2*np.std(Dltaint))])
         # int_dif = 10
 
 
@@ -169,14 +184,13 @@ class blk_traces():
             mask1   = maski[min1:max1+1, min2:max2+1]
             # 用于最终的待拟合图片生成
             imspt   = self.im[d1:d4+1, min1:max1+1, min2:max2+1].copy()
-            item0. Imspt = imspt
+            # item0. Imspt = imspt
             # 用于计算区域的亮度timetrace
             immsk   = self.im[d1:d4+1, min1:max1+1, min2:max2+1].copy()
             # imnsk   = im[d1:d4+1, int(item0['cnt_12'][0]-radius2):
             #                       int(item0['cnt_12'][0]+radius2), 
             #                       int(item0['cnt_12'][1]-radius2):
             #                       int(item0['cnt_12'][1]+radius2)].copy()
-            
             len_    = len(imspt)
             # 用于标记该帧是否采用
             indn    = np.ones(len_, dtype=bool)
@@ -189,15 +203,13 @@ class blk_traces():
                 falid_pt =  np.count_nonzero(markn[k])\
                                             /markn[k].size*100
                 if falid_pt >= 10: indn[k] = False
-                immsk[k, ind02[:,0], ind02[:,1]] = 95 #midval[k]
+                immsk[k, ind02[:,0], ind02[:, 1]] = 95 #midval[k]
             immsk[immsk < 95] = 95
-            imint1  = np.mean(immsk, axis=(1,2))
-            # imint2  = np.mean(imnsk, axis=(1,2))
+            imint1  = np.mean(immsk, axis=(1, 2))
 
             item0. Imint  = imint1
-            item0. Indn   = indn
+            # item0. Indn   = indn
             item0. corner = [min1,min2]
-            # item0. Imint2 = imint2 
 
     
     # %%4.. 得到拟合图形
@@ -207,11 +219,11 @@ class blk_traces():
         ditx = np.diff(intx)
         stdx = np.std(np.abs(ditx))
         try:
-            ixa = np.where(np.abs(ditx)>2*stdx)[0]
+            ixa = np.where(np.abs(ditx)> 2*stdx)[0]
             ixx = [ix0 for ix0 in ixa if ix[ix0+1]-ix[ix0]>1 and ix[ix0]>=dd+4][0]
         except IndexError:
             return xi
-        return [False if i >= ix[ixx]+1 else elem for i, elem in enumerate(xi)]
+        return  [False if i >= ix[ixx] +1 else elem for i, elem in enumerate(xi)]
     
     def brk_ix(self, xi, dd):
         flag = 0
@@ -248,7 +260,7 @@ class blk_traces():
                 # valid_fr1 =np.count_nonzero(x1)
                 # if  valid_fr0 <frame_tr or valid_fr1 <frame_tr: 
                 if not(any(x0) and any(x1)):
-                    flag = True; item1['abort'] = 2; break;
+                    flag = True; item1['abort'] = 2; break
                 # int00 = np.mean(imintt[x0])
                 # int11 = np.mean(imintt[x1])
                 int00 = (np.max(imintt[x0]) +np.min(imintt[x0]))/2
@@ -265,12 +277,12 @@ class blk_traces():
             if np.abs(int1-int11)>=std00\
             or (std001<=std00/2 and np.abs(int111-int1)>=std00): 
                 int11 = int1
-            x0  = (imintt >= int00 -std00) & (imintt <= int00 +std00)
-            x1  = (imintt >= int11 -std00) & (imintt <= int11 +std00)
-            x00 = (imintt >= int00 -std00*2)\
-                & (imintt <= int00 +std00*2)
-            x11 = (imintt >= int11 -std00*2)\
-                & (imintt <= int11 +std00*2)
+            x0  = (imintt >=int00 -std00) &(imintt <=int00 +std00)
+            x1  = (imintt >=int11 -std00) &(imintt <=int11 +std00)
+            x00 = (imintt >=int00 -std00*2)\
+                 &(imintt <=int00 +std00*2)
+            x11 = (imintt >=int11 -std00*2)\
+                 &(imintt <=int11 +std00*2)
             x0 = consec_T(x0,3); x0 = consec_T3(x0,x00,3)
             x1 = consec_T(x1,3); x1 = consec_T3(x1,x11,3)
             x0 = self.brk_ix(x0[::-1], len(x0)-d2+d1)[::-1]
@@ -288,9 +300,10 @@ class blk_traces():
             
             # Ant_id.append(ii); 
             
-            item1. rng_ax    = np.array([x0, x1])
-            item1. validC    = vlC
-            item1. SpotsB    = spt 
+            # item1. rng_at    = np.array([x0, x1])
+            item1. frame_wght = np.array([x0, x1])
+            item1. ValidC    = vlC
+            item1. SpotB     = spt 
             
             
             # P = sci_opt_fit(spt, pixel_size,4.6)

@@ -24,41 +24,36 @@ class blk_trace():
     ValidC:
     SpotB:
     '''
-    def __init__(self, excitation_, glitch_, centr_, TR_mrk_):
-        self. glitch_or_not  = glitch_
+    __slot__ = (
+        'glitch_or_not', 'excitation', 'Dint', 'Indn', 'SpotB',
+         'Imspt',  'Imint', 
+        'rng_t0', 'rng_ax', 
+        'cnt_12', 'corner', 
+        'weight', 'ValidC', 
+        )
+    def __init__( self, excitation_, glitchs_, centr_, TR_mrk_):
+        self. glitch_or_not = glitchs_
         self. excitation = excitation_
-        self. abort = 0 
+        self. abort  = 0
         self. rng_t0 = TR_mrk_
-        self. nframe = [TR_mrk_[1]-TR_mrk_[0],
-                        TR_mrk_[3]-TR_mrk_[2]] 
         self. cnt_12 = centr_
-        self. SpotsI = (TR_mrk_[3]+TR_mrk_[0])/2
+        self. Imint:  np.ndarray
+        self. rng_ax: np.ndarray
+        
 
     @property
-    def Imint(self):
-        return self._imint
-
-    @Imint.setter
-    def Imint(self, intensity):
-        self._imint = intensity
+    def SpotI(self):
+        return (self.rng_t0[3]+ self.rng_t0[0])/2
 
     @property
     def Dint(self):
-        return np.abs(self.Imint[self. rng_t0[1]-self. rng_t0[0]] 
-                     -self.Imint[self. rng_t0[2]-self. rng_t0[0]])
-    
-    @property
-    def rng_ax(self):
-        return self._imint
-
-    @rng_ax.setter
-    def rng_ax(self, idxx):
-        self._rng_ax = idxx
+        return np.abs(self.Imint[self.rng_t0[1]-self.rng_t0[0]] 
+                     -self.Imint[self.rng_t0[2]-self.rng_t0[0]])
 
     @property
     def weight(self):
         return np.count_nonzero(self.rng_ax[0]) \
-                                + np.count_nonzero(self.rng_ax[1])
+                            + np.count_nonzero(self.rng_ax[1])
     
 
 class blk_traces():
@@ -152,7 +147,8 @@ class blk_traces():
             # 制作mask: 0代表无关区域 1代表拟合区域 2代表边缘区域
             # 初始化maski, 成品mask1
             maski   = np.zeros(self.shape1[1:]) 
-            x_circle, y_circle = gen_circle(item0.cnt_12, radius, self.shape1[1:])
+            x_circle, y_circle = gen_circle(item0.cnt_12, radius, 
+                                            self.shape1[ 1:])
             maski[y_circle, x_circle] = 1
             ind_1   = np.where(maski==1) 
             Visited = np.zeros(self.shape1[1: ], dtype=bool)
@@ -162,7 +158,8 @@ class blk_traces():
                         yind = ind_1[0][j] + y_offset
                         xind = ind_1[1][j] + x_offset
                         if (xind >= 0 and xind < self.shape1[2] and  
-                            yind >= 0 and yind < self.shape1[1] and maski[yind,xind] == 0):
+                            yind >= 0 and yind < self.shape1[1] and 
+                            maski[yind,xind] == 0):
                             if  not Visited[yind,xind]: 
                                 maski  [yind, xind] =2 
                                 Visited[yind, xind] =True

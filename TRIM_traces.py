@@ -14,23 +14,22 @@ class blk_trace():
     Imspt:              数据备选的区间;      
     Imint:              对应区间TR;
     rng_t0:             tz时间节点*4;
-    rng_at:             亮暗事件的有效帧标记;
+    vld_frame:             亮暗事件的有效帧标记(通过TR);
     cnt_12:             xy中心坐标;         
     corner:             区域位置标记;
-    Indn:               标记的无效帧;
+    Indn:               标记的无效帧（通过glitch）;
     ValidC:             最终有效光子数;
     SpotB:              最终待拟合光斑;
 
-    SpotI:              中心时间位置;
+    cnt_z:              中心时间位置;
     Dint:               主事件闪烁幅度; 
-    frame_wght:             帧数权重
+    frame_wght:         帧数权重 
     '''
     __slot__ = (
         'glitch_or_not', 'excitation', 'Indn', 'abort', 'weight'
-        'ValidC',  'SpotB',
-         'Imspt',  'Imint', 
-        'rng_t0', 'rng_at', 
-        'cnt_12', 'corner', 'xy', 'fit_o', 'drift'
+        'ValidC',  'SpotB', 'Imspt',  'Imint', 
+        'rng_t0', 'vld_frame','cnt_12', 'corner', 
+        'xy', 'fit_o', 'drift'
         )
     def __init__( self, excitation_: float, glitchs_: bool, 
                         center_: np.ndarray, TR_mrk_: list[int]):
@@ -40,7 +39,7 @@ class blk_trace():
         self. rng_t0 = TR_mrk_
         self. cnt_12 = center_
 
-        # self. rng_at:   np.ndarray[bool, np.dtype[np.bool_]]
+        # self. vld_frame:   np.ndarray[bool, np.dtype[np.bool_]]
         self. Imint:    np.ndarray
 
         # self. Imspt:    np.ndarray
@@ -53,7 +52,7 @@ class blk_trace():
         self. fit_o:    dict
 
     @property
-    def SpotI(self):
+    def cnt_z(self):
         return (self.rng_t0[3]+ self.rng_t0[0])/2
 
     @property
@@ -65,9 +64,9 @@ class blk_trace():
     def frame_wght(self): return self.weight
     @frame_wght.setter
     def frame_wght(self, 
-                   rng_at_: np.ndarray[bool, np.dtype[np.bool_]]):
-        self. weight = np.count_nonzero(rng_at_[0]) \
-                                    +np.count_nonzero(rng_at_[1])
+                   vld_frame_: np.ndarray[bool, np.dtype[np.bool_]]):
+        self. weight = np.count_nonzero(vld_frame_[0]) \
+                                    +np.count_nonzero(vld_frame_[1])
     
 
 class blk_traces():
@@ -84,19 +83,20 @@ class blk_traces():
 
         self. centrAll  = np.vstack((centrpT, centrnT))
         self. EventpnT  = EventpT + EventnT
-        self. Traces    = self. fig_spots(Events_[0])+ \
-                                         self. fig_spots(EventnT)
+        self. Traces    = self. comb_events(Events_[0])+ \
+                                         self. comb_events(EventnT)
 
-        self. TR_area()
+        self. time_trace()
 
-        Dltaint      = np.array([ item.Dint for item in self.Traces]) 
+        Dltaint         = np.array([item.Dint for item in self.Traces]) 
         self. int_dif   = np.mean (Dltaint[np.where(
                                     np.abs(Dltaint-np.mean(Dltaint)) 
-                                                < 2*np.std(Dltaint))])
+                                              < 2*np.std(Dltaint))])
         # int_dif = 10
+        self. find_spot()
 
 
-    def fig_spots(self, Events_: list[blk_event]):
+    def comb_events(self, Events_: list[blk_event]):
         distxy = self.parameters['distxy']
         distz0 = self.parameters['distz0']
         frame_tr = self.parameters['frame_min']
@@ -155,7 +155,7 @@ class blk_traces():
         return Traces_                
     
 
-    def TR_area(self):
+    def time_trace(self):
         radius = self.parameters['radius']
         for item0 in self.Traces:
             d1, d2, d3, d4 = item0.rng_t0
@@ -210,9 +210,6 @@ class blk_traces():
             item0. Imint  = imint1
             # item0. Indn   = indn
             item0. corner = [min1,min2]
-
-    
-    # %%4.. 得到拟合图形
 
     def std_ix(self, xi, intx, dd):
         ix   = np.where(xi)[0]
@@ -300,7 +297,7 @@ class blk_traces():
             
             # Ant_id.append(ii); 
             
-            # item1. rng_at    = np.array([x0, x1])
+            # item1. vld_frame    = np.array([x0, x1])
             item1. frame_wght = np.array([x0, x1])
             item1. ValidC    = vlC
             item1. SpotB     = spt 

@@ -33,7 +33,7 @@ class blk_events():
                        parameters_: dict):
         self. imdi = imdi_
         self. imgd = imgd_
-        self. shape1 = np.shape(imgd_)
+        self. shape1 = np. shape(imgd_)
         self. parameters = parameters_
         slice_p, posp = imloc_max(imgd_,  
                                   parameters_['thres0'], 
@@ -46,20 +46,20 @@ class blk_events():
                                   parameters_['mxfilt_size'], 
                                   parameters_['enl'])
 
-        self. events_p = self.get_event_with_mark(slice_p, posp)
-        self. events_n = self.get_event_with_mark(slice_n, posn)
+        self. events_p = self. mark_event(slice_p, posp)
+        self. events_n = self. mark_event(slice_n, posn)
         self. glitch_id = self.pair_glitch()
         
 
-    def get_event_with_mark (self, slice_, maxpos) -> list[blk_event]:
+    def mark_event (self, slice_, maxpos) -> list[blk_event]:
         enl0 = self.parameters['enl']
         enl  = self.parameters['enl']
         elx  = self.parameters['elx']
         shape1 = self.shape1
         '''
         prooerties: 
-            centr: 中心位置  rng: 时间中心  spots: 光斑图貌  std: 拟合误差    
-        断点标记分类：
+            centr: 中心位置  zng: 时间中心  spots: 光斑图貌  std_err: 拟合误差    
+        标记分类：
             1. 范围过大或轮廓异常
             2. 信噪比低(拟合失败)  
             3. 范围过小  

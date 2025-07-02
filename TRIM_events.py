@@ -29,22 +29,22 @@ class blk_event():
 
 
 class blk_events():
-    def __init__(self, imdi_: np.ndarray, imgd_: np.ndarray,
-                       parameters_: dict):
-        self. imdi = imdi_
-        self. imgd = imgd_
-        self. shape1 = np. shape(imgd_)
-        self. parameters = parameters_
-        slice_p, posp = imloc_max(imgd_,  
-                                  parameters_['thres0'], 
-                                  parameters_['thres1'], 
-                                  parameters_['mxfilt_size'], 
-                                  parameters_['enl'])
-        slice_n, posn = imloc_max(imgd_, 
-                                 -parameters_['thres0'], 
-                                  parameters_['thres1'], 
-                                  parameters_['mxfilt_size'], 
-                                  parameters_['enl'])
+    def __init__(self, ImgDiff: np.ndarray, guassImgDiff: np.ndarray,
+                       parameters: dict):
+        self. imdi = ImgDiff
+        self. imgd = guassImgDiff
+        self. shape1 = np. shape(guassImgDiff)
+        self. parameters = parameters
+        slice_p, posp = imloc_max(guassImgDiff,  
+                                  parameters['thres0'], 
+                                  parameters['thres1'], 
+                                  parameters['mxfilt_size'], 
+                                  parameters['enl'])
+        slice_n, posn = imloc_max(guassImgDiff, 
+                                 -parameters['thres0'], 
+                                  parameters['thres1'], 
+                                  parameters['mxfilt_size'], 
+                                  parameters['enl'])
 
         self. events_p = self. mark_event(slice_p, posp)
         self. events_n = self. mark_event(slice_n, posn)

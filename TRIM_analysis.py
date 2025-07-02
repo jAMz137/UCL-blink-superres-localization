@@ -116,11 +116,11 @@ Adrift_xy   = drift_correction(
 # 查找整个含时间的三维矩阵中发生闪烁的帧数坐标, 定位完整闪烁
 # 两个数组中分别记录了变暗与变亮两种事件
 
-img     = gaussian_filter( im, sigma = guasfilt_size)
-imgd    = np.diff(img,axis=0)
-imdi    = np.diff(im, axis=0)
+guassImg        = gaussian_filter( im, sigma = guasfilt_size)
+ImgDiff         = np.diff(im, axis=0)
+guassImgDiff    = np.diff(guassImg,axis=0)
 
-Events = blk_events(imdi, imgd, parameters)
+Events = blk_events(ImgDiff, guassImgDiff, parameters)
 
 ##################################################################
 end_time1 = time.time()

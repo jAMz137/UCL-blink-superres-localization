@@ -70,12 +70,12 @@ class blk_trace():
     
 
 class blk_traces():
-    def __init__(self, Events_: blk_events, im_: np.ndarray, 
-                                            parameters_: dict):
+    def __init__(self, Events_: blk_events, im: np.ndarray, 
+                                            parameters: dict):
         self. glitch_id = Events_.glitch_id
-        self. parameters = parameters_
-        self. im = im_
-        self. shape1 = np.shape(im_)
+        self. parameters = parameters
+        self. im = im
+        self. shape1 = np.shape(im)
         EventpT = [item for item in Events_[0] if not item.glced]
         EventnT = [item for item in Events_[1] if not item.glced]
         centrpT = np.array([item.centr for item in EventpT])
@@ -198,7 +198,7 @@ class blk_traces():
             ind_2   = np.array(np.where( maski ==2)).T
             # midval  = np.median(im[d1:d4+1, ind_2[:,0], 
             #                                 ind_2[:,1]], axis=1)
-            markn   = self.glitch_id[d1:d4+1 ,min1:max1+1, min2:max2+1]
+            markn   = self.glitch_id[d1:d4+1, min1:max1+1, min2:max2+1]
             for k in range(len_):
                 falid_pt =  np.count_nonzero(markn[k])\
                                             /markn[k].size*100

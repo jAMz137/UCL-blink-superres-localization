@@ -109,7 +109,7 @@ def locate_intervals(
         }
 
         if (
-            interval.ValidC >= 300
+            interval.ValidC >= 100
             and ellip < 0.1
             and fit_error < 0.2
             and perr[1] < 0.1
@@ -152,6 +152,9 @@ def run_pipeline(
 
     all_localizations = []
     stack_paths = sorted(stack_dir.glob("*stack.tif"), key=power_index_from_name)
+    if not stack_paths:
+        raise RuntimeError(f"No demo stacks found in {stack_dir}.")
+    image_shape_px = tuple(int(value) for value in tifile.imread(stack_paths[0], key=0).shape)
     for stack_path in stack_paths:
         power_index = power_index_from_name(stack_path)
         marker_path = marker_path_for(marker_dir, power_index)
@@ -171,8 +174,17 @@ def run_pipeline(
         output_dir / "localization_precision.txt",
         pixel_size_nm=config.pixel_size_nm,
     )
-    save_scatter_plot(table, output_dir / "scatter_ploti.png", cluster_rows=cluster_rows)
-    save_density_map(table, output_dir / "Gaussianrender_density_map_raw.PNG")
+    save_scatter_plot(
+        table,
+        output_dir / "scatter_ploti.png",
+        cluster_rows=cluster_rows,
+        image_shape_px=image_shape_px,
+    )
+    save_density_map(
+        table,
+        output_dir / "Gaussianrender_density_map_raw.PNG",
+        image_shape_px=image_shape_px,
+    )
     print(f"Saved {len(table)} localizations to {output_dir}")
 
 

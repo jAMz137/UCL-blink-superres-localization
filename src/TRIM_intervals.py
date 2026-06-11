@@ -257,9 +257,17 @@ class NonBlinkingIntervalSet:
             if interval.abort:
                 continue
 
-            if np.abs(int0 - int00) >= std_window:
+            std0 = np.std(imint[x0])
+            std1 = np.std(imint[x1])
+            mean0 = np.mean(imint[x0])
+            mean1 = np.mean(imint[x1])
+            if np.abs(int0 - int00) >= std_window or (
+                std0 <= std_window / 2 and np.abs(mean0 - int0) >= std_window
+            ):
                 int00 = int0
-            if np.abs(int1 - int11) >= std_window:
+            if np.abs(int1 - int11) >= std_window or (
+                std1 <= std_window / 2 and np.abs(mean1 - int1) >= std_window
+            ):
                 int11 = int1
 
             x0 = (imint >= int00 - std_window) & (imint <= int00 + std_window)

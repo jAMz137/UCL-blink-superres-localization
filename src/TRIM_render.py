@@ -111,7 +111,56 @@ def _cluster_labels(data: np.ndarray, n_components: int = 8) -> tuple[np.ndarray
         )
         labels = model.fit_predict(points)
 
-    return labels, np.zeros(len(data), dtype=bool)
+    is_outlier = _cluster_outlier_mask(points, labels)
+    if np.any(is_outlier) and np.count_nonzero(~is_outlier) >= n_components:
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                category=RuntimeWarning,
+                module=r".*threadpoolctl.*",
+            )
+            model = cluster.KMeans(
+                n_clusters=n_components,
+                random_state=42,
+                n_init=50,
+            )
+            labels_inlier = model.fit_predict(points[~is_outlier])
+        labels = np.full(len(data), -1, dtype=int)
+        labels[~is_outlier] = labels_inlier
+
+    return labels, is_outlier
+
+
+def _cluster_outlier_mask(points: np.ndarray, labels: np.ndarray) -> np.ndarray:
+    """Exclude isolated points before cluster-wise precision estimation."""
+
+    is_outlier = np.zeros(len(points), dtype=bool)
+    for cluster_id in sorted(set(labels)):
+        mask = labels == cluster_id
+        if np.count_nonzero(mask) < 4:
+            continue
+        cluster_points = points[mask]
+        center = np.median(cluster_points, axis=0)
+        distances = np.linalg.norm(cluster_points - center, axis=1)
+        threshold = max(0.75, 4.0 * float(np.median(distances)))
+        cluster_indices = np.flatnonzero(mask)
+        is_outlier[cluster_indices[distances > threshold]] = True
+    return is_outlier
+
+
+def _figure_extent(image_shape_px: tuple[int, int]) -> tuple[int, int, list[int], tuple[float, float]]:
+    """Return image width, height, imshow extent, and aspect-matched figure size."""
+
+    height_px, width_px = image_shape_px
+    max_dim = max(width_px, height_px)
+    figure_size = (10.0 * width_px / max_dim, 10.0 * height_px / max_dim)
+    return width_px, height_px, [0, width_px, 0, height_px], figure_size
+
+
+def _scaled_dpi(image_shape_px: tuple[int, int], base_dpi: int) -> int:
+    """Scale output resolution with the original image pixel count."""
+
+    return max(1, int(round(base_dpi * max(image_shape_px) / 36)))
 
 
 def _cluster_label_map(cluster_rows: list[dict]) -> dict[int, int]:
@@ -137,10 +186,12 @@ def save_scatter_plot(
     path: Path,
     point_radius_px: float = 0.05,
     cluster_rows: list[dict] | None = None,
+    image_shape_px: tuple[int, int] = (36, 36),
 ) -> None:
     """Render the localization point cloud and label the eight clusters."""
 
-    fig, ax = plt.subplots(figsize=(10, 10))
+    width_px, height_px, _, figure_size = _figure_extent(image_shape_px)
+    fig, ax = plt.subplots(figsize=figure_size)
     fig.subplots_adjust(left=0.09, right=0.98, bottom=0.09, top=0.98)
     if cluster_rows is None:
         cluster_rows = _cluster_rows(data)
@@ -177,12 +228,12 @@ def save_scatter_plot(
             va="center",
         )
 
-    ax.set_xlim(0, 36)
-    ax.set_ylim(0, 36)
+    ax.set_xlim(0, width_px)
+    ax.set_ylim(0, height_px)
     ax.set_aspect("equal")
     ax.set_xlabel("X (pixel)")
     ax.set_ylabel("Y (pixel)")
-    fig.savefig(path, dpi=300)
+    fig.savefig(path, dpi=_scaled_dpi(image_shape_px, 300))
     plt.close(fig)
 
 
@@ -211,9 +262,16 @@ def render_smlm_gaussian(
     return gaussian_filter(hist, sigma=sigma_px)
 
 
-def save_density_map(data: np.ndarray, path: Path) -> None:
+def save_density_map(
+    data: np.ndarray,
+    path: Path,
+    image_shape_px: tuple[int, int] = (36, 36),
+) -> None:
     """Save the normalized Gaussian-rendered density map with coordinate axes."""
 
+    width_px, height_px, extent, figure_size = _figure_extent(image_shape_px)
+    _, is_outlier = _cluster_labels(data)
+    data = data[~is_outlier]
     weights = data[:, 2] + data[:, 3]
     weights = weights / weights.max()
     z = render_smlm_gaussian(
@@ -222,7 +280,7 @@ def save_density_map(data: np.ndarray, path: Path) -> None:
         pixel_size_px=75 / 600,
         weights=weights,
         sigma_px=1.2,
-        range_xy=[[0, 36], [0, 36]],
+        range_xy=[[0, width_px], [0, height_px]],
     )
     z = np.maximum(z, 1e-12)
     z_log = np.log10(z * 100)
@@ -232,23 +290,24 @@ def save_density_map(data: np.ndarray, path: Path) -> None:
     cmap.set_over("white")
     cmap.set_under("white")
 
-    fig, ax = plt.subplots(figsize=(10, 10), dpi=100)
+    dpi = _scaled_dpi(image_shape_px, 100)
+    fig, ax = plt.subplots(figsize=figure_size, dpi=dpi)
     fig.subplots_adjust(left=0.09, right=0.98, bottom=0.09, top=0.98)
     ax.imshow(
         np.rot90(z_normalized),
         cmap=cmap,
         vmin=0,
         vmax=1,
-        extent=[0, 36, 0, 36],
+        extent=extent,
         aspect="equal",
         interpolation="none",
     )
     ax.set_xlabel("X (pixel)")
     ax.set_ylabel("Y (pixel)")
-    ax.set_xlim(0, 36)
-    ax.set_ylim(0, 36)
+    ax.set_xlim(0, width_px)
+    ax.set_ylim(0, height_px)
     ax.set_aspect("equal")
-    fig.savefig(path, dpi=100)
+    fig.savefig(path, dpi=dpi)
     plt.close(fig)
 
 

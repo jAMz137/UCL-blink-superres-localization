@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.spyproject/
+results/
+results_test/
+data/driftmark5V/dfting*.txt
+data/driftmark5V/drift*.tif
+data/driftmark5V/drifA*.tif

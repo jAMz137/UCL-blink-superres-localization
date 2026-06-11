@@ -1,195 +1,199 @@
-"""
-@uthor: James Ma
-    For picking slices from 3D array arbitarily impliedly using timetraces. 
+"""Command-line entry point for blinking-event super-resolution localization."""
 
-V20240429:重新选择 frame_max; 排除非连续的三帧以下部分; 处理多颗粒同时闪烁的情况. 
-V20240704:格式规范, 使用typing进行类型标注. 
-""" 
+from __future__ import annotations
 
-import numpy as np; import tifffile as tifile
-import os, re
+import argparse
+import re
+import time
+from pathlib import Path
+
+import numpy as np
+import tifffile as tifile
 from scipy.ndimage import gaussian_filter
 
-if __name__ == '__main__':
-    script_dir =os.path.dirname(os.path.realpath(__file__))
-    os.chdir(script_dir)   
-
-from utils_toolbox import sci_opt_fit
- 
-from drift_correction import drift_correction
-from TRIM_events import blk_events
-from TRIM_traces import blk_traces, blk_trace
-
-Root        = 'G:\\data2024\\'
-Data        =             '20240220_2'
-Path        =  Root + Data + '\\stack'
-
-Targ        = '53d0'
-numbers     =  re.findall(r'\d+',Targ)
-Filename    =  Targ + 'stack.tif'
-
-Dat         =  Data +'_'+Targ +'Dat\\'
-
-if not os.path.exists(Dat): 
-    os.mkdir(Dat)
-
-im0  = np.array(np.float32(tifile.imread(Path +'\\' +Filename)))[ :-1]
+from src.TRIM_config import AnalysisConfig
+from src.TRIM_events import BlinkEventSet
+from src.TRIM_render import (
+    estimate_localization_precision,
+    save_density_map,
+    save_localization_table,
+    save_scatter_plot,
+)
+from src.TRIM_intervals import NonBlinkingIntervalSet
+from src.drift_correction import DriftCorrection
+from src.utils_toolbox import sci_opt_fit
 
 
-#%% ex:参数统一设置
+def power_index_from_name(path: Path) -> int:
+    """Extract the demo power index from names such as 0stack.tif."""
 
-parameters  = {}
-parameters['excitation']  = numbers[0]
-parameters['thres0']  = 3.5 # float, 一个能与背景产生区分的值
-parameters['thres1']  = 9   # float, TR能被探测到的两帧间变化
-
-parameters['pixel_size'] = 1; bintime = 0.25
-# float, sigma parameter, FWHM=2.355*σ
-sigma_s = 5 *parameters['pixel_size'] 
-# 
-# int, spots_n/p outlier, (max)enl (min)enl/2
-parameters['enl'] = int(2*sigma_s) 
-# int, Determining if the boundary is reached
-parameters['elx'] = int(np.ceil(sigma_s/2)+1) 
-
-# int, tz glitches search range
-parameters['dist_s']    = int(2.5*parameters['distA0']) 
-# int, glitches range
-parameters['dist00']    = int(bintime *8) 
-parameters['dist12']    = parameters['enl'] +1
-# float, glitch match threshold
-parameters['thres2']    = parameters['thres0'] 
-
-# int, min/max frame to be a state
-parameters['frame_min'] = 3             
-parameters['frame_max'] = 30
-# float, to judge the overlapping(xy)
-parameters['distxy']    = parameters['enl'] *0.8      
-                            
-# radius of spot mask to extract TR
-parameters['radius']   = int(parameters['elx'] 
-                            +parameters['enl'])   
-
-# float, sigma of guassian filter(xy& tz)
-sigma_t         = bintime*2
-sigma_f         = sigma_s       
-guasfilt_size   = (sigma_t, sigma_f, sigma_f)
-
-# float, sigma of maximum  filter(xy& tz)
-# 此处2对当前帧与+1帧做最大值滤波, 理想取值3
-mx_filt0        = bintime*12    
-mx_filt12       = parameters['enl']
-parameters['mxfilt_size'] = (mx_filt0, mx_filt12, mx_filt12)
+    numbers = re.findall(r"\d+", path.stem)
+    if not numbers:
+        raise ValueError(f"Cannot parse power index from {path.name}")
+    value = int(numbers[0])
+    return value
 
 
-#%% ex:截取研究区域
-'''
-框选对象点的正方形范围, 标注HCI上显示的像素值, 
-读取后 x/y轴会调换(0指标对应y轴,1指标对应x轴)
-'''
-Center_x    = 115
-Center_y    = 135
-width       = 70
-im = im0[
-        :,
-        int(Center_y-width):int(Center_y+width),
-        int(Center_x-width):int(Center_x+width)]
+def marker_path_for(marker_dir: Path, power_index: int) -> Path | None:
+    candidate = marker_dir / f"{power_index}stamark.tif"
+    if candidate.exists():
+        return candidate
+    return None
 
-##################################################################
-import time
-start_time = time.time()
-##################################################################
 
-#%% ex:漂移校准(correlated)
-dft_step    = 20    # 漂移校准步长
-mark_num    = 1     # 校准标记个数
-mark_names  = ['driftmark5V', 'driftmark2', 'driftmark3']
-Adrift_xy   = drift_correction(
-            Root + Data, 
-            Targ +'stamark.tif',
-            parameters['excitation'], 
-            dft_step, mark_num,
-            parameters['pixel_size'], 
-            mark_names).correlated()
-        
-#%% 1. 整理闪烁事件点
-# 查找整个含时间的三维矩阵中发生闪烁的帧数坐标, 定位完整闪烁
-# 两个数组中分别记录了变暗与变亮两种事件
+def locate_intervals(
+    stack_path: Path,
+    marker_path: Path,
+    output_dir: Path,
+    config: AnalysisConfig,
+    power_index: int,
+) -> list[dict]:
+    """Run event detection, interval extraction, fitting, and drift correction."""
 
-guassImg        = gaussian_filter( im, sigma = guasfilt_size)
-ImgDiff         = np.diff(im, axis=0)
-guassImgDiff    = np.diff(guassImg,axis=0)
+    excitation = power_index
+    raw_stack = np.array(np.float32(tifile.imread(stack_path)))[:-1]
+    image_stack = raw_stack
 
-Events = blk_events(ImgDiff, guassImgDiff, parameters)
+    drift = DriftCorrection(
+        marker_path.parent,
+        marker_path.name,
+        power_index,
+        20,
+        1,
+        config.pixel_size,
+    ).correlated()
 
-##################################################################
-end_time1 = time.time()
-print("time consuming: {:.2f}s".format(end_time1 - start_time))
-##################################################################
+    gaussian_stack = gaussian_filter(
+        image_stack,
+        sigma=(0.5, config.spot_sigma_px, config.spot_sigma_px),
+    )
+    image_diff = np.diff(image_stack, axis=0)
+    gaussian_diff = np.diff(gaussian_stack, axis=0)
+    events = BlinkEventSet(image_diff, gaussian_diff, config)
+    intervals = NonBlinkingIntervalSet(events, image_stack, config, excitation)
 
-#%% 3. 定位前后的置信帧
+    localizations = []
+    for interval in intervals.Traces:
+        if interval.abort == 1:
+            continue
+        image_to_fit = interval.SpotB if interval.SpotB is not None else interval.SpotA
+        if image_to_fit is None:
+            continue
+        min_y, min_x = interval.corner
+        fit = sci_opt_fit(image_to_fit, config.pixel_size, 4.6)
+        if fit[1] == "fail":
+            interval.abort = 4
+            binary_image = (image_to_fit > np.max(image_to_fit) / 3).astype(int)
+            coords = np.column_stack(np.nonzero(binary_image))
+            if len(coords) == 0:
+                continue
+            centroid = coords.mean(axis=0)
+            raw_x = float(centroid[1])
+            raw_y = float(centroid[0])
+            continue
+        popt, _, perr = fit
+        raw_x = float(popt[1])
+        raw_y = float(popt[2])
+        drift_index = min(int(interval.SpotI // 20), len(drift) - 1)
+        drift_x, drift_y = drift[drift_index]
+        x = float(raw_x + min_x - drift_x)
+        y = float(raw_y + min_y - drift_y)
+        ellip = abs(popt[3] / popt[4] - 1)
+        fit_error = float(perr[1] + perr[2])
 
-Intervals = blk_traces(Events, im, parameters)
+        interval.xy = [x, y]
+        interval.drift = [float(drift_x), float(drift_y)]
+        interval.fit_o = {
+            "stdxy": [float(perr[1]), float(perr[2])],
+            "sigma_xy": [float(popt[3]), float(popt[4])],
+        }
 
-##################################################################
-end_time2 = time.time()
-print("time consuming: {:.2f}s".format(end_time2 - end_time1))
-##################################################################
-#%%5. 拟合与画图
+        if (
+            interval.ValidC >= 300
+            and ellip < 0.1
+            and fit_error < 0.2
+            and perr[1] < 0.1
+            and perr[2] < 0.1
+        ):
+            localizations.append(
+                {
+                    "source": stack_path.name,
+                    "excitation": excitation,
+                    "frame": float(interval.cnt_z),
+                    "x": x,
+                    "y": y,
+                    "stdx": float(perr[1]),
+                    "stdy": float(perr[2]),
+                    "valid_counts": float(interval.ValidC),
+                }
+            )
+        else:
+            interval.abort = 5
 
-ii = 1
-for iii, item2 in enumerate(Intervals.Traces):
-    item2: blk_trace
-    outfit = {}
-    if item2.abort != 0 and item2.abort != 5: 
-        continue
-    min1, min2 = item2.corner; Img = item2.SpotB
-    # Img = np.pad(Img, ((3, 3), (3, 3)), 
-    #                   mode = 'constant', 
-    #                   constant_values=Img[-1,-1])
-    P = sci_opt_fit(Img, parameters['pixel_size'], 4.6)
-    outfit['result'] = 'fail'
-    if P[1] == 'fail': 
-        item2.abort = 4
-        continue
-    popt1 = P[0]; perr1 = P[2]
-    outfit['stdxy'] = [perr1[1], perr1[2]]
-    # outfit['popt' ] = popt1
-    x_com, y_com = Adrift_xy[int(item2.SpotI //dft_step)]
-    x = popt1[1] + min2 -3 - x_com
-    y = popt1[2] + min1 -3 - y_com
-    
-    outfit['sigma_xy'] = (popt1[3], popt1[4])
-    item2. xy = [x,y]
-    item2. drift = [x_com, y_com]
-    item2. fit_o = outfit
-    
-    ellip   = abs(popt1[3]/popt1[4] -1)
-    totjd   = perr1[1] + perr1[2]
-    if  item2.ValidC >=100 and ellip< 0.1 and\
-        totjd< 0.2 and perr1[1]< 0.1 and perr1[2]< 0.1:
-        # 此处绘图方便检查        
-        # fit_plot(Img, popt1, pixel_size, Targ, iii,
-        #                      'No0' + str('%03d'%ii))
-        # ii += 1
-        # 相对拟合图片中心的距离
-        pass
-    else: item2.abort = 5
+    print(
+        f"{stack_path.name}: {len(localizations)} accepted localizations "
+        f"from {len(intervals.Traces)} intervals"
+    )
+    return localizations
 
-        
-Position_x  = np.array([item.x 
-                        for item in Intervals.Traces if item.abort==0]) 
-Position_y  = np.array([item.y 
-                        for item in Intervals.Traces if item.abort==0]) 
 
-aXY     = np.vstack((Position_x, Position_y)).T
-# dXY     = np.vstack((Posiperr_x, Posiperr_y))
-# AdXY    = np.mean  (dXY, axis=0)
-# aXYT    = np.vstack((aXY.T,      Weight_arr))
-# adXYT   = np.vstack((aXYT,       AdXY      )).T
-Avent2  = [item for item in Intervals.Traces if item.abort==0]
+def run_pipeline(
+    data_dir: Path,
+    output_dir: Path,
+    pixel_size_nm: float,
+    spot_sigma_px: float,
+) -> None:
+    """Process every demo stack once and write all final outputs."""
 
-import pickle
-Avent = pickle.load(open("E:\\PrGm_tempfile\\Avent.p", "rb"))
-Avent+= Avent2
-pickle. dump(Avent, open("E:\\PrGm_tempfile\\Avent.p", "wb"))
+    config = AnalysisConfig(pixel_size_nm=pixel_size_nm, spot_sigma_px=spot_sigma_px)
+    stack_dir = data_dir / "demo_stacks_36px"
+    marker_dir = data_dir / "driftmark5V"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    all_localizations = []
+    stack_paths = sorted(stack_dir.glob("*stack.tif"), key=power_index_from_name)
+    for stack_path in stack_paths:
+        power_index = power_index_from_name(stack_path)
+        marker_path = marker_path_for(marker_dir, power_index)
+        if marker_path is None:
+            print(f"Skipping {stack_path.name}: missing marker for power index {power_index}")
+            continue
+        all_localizations.extend(
+            locate_intervals(stack_path, marker_path, output_dir, config, power_index)
+        )
+
+    if not all_localizations:
+        raise RuntimeError("No accepted localizations were produced.")
+
+    table = save_localization_table(all_localizations, output_dir / "localizations.txt")
+    cluster_rows = estimate_localization_precision(
+        table,
+        output_dir / "localization_precision.txt",
+        pixel_size_nm=config.pixel_size_nm,
+    )
+    save_scatter_plot(table, output_dir / "scatter_ploti.png", cluster_rows=cluster_rows)
+    save_density_map(table, output_dir / "Gaussianrender_density_map_raw.PNG")
+    print(f"Saved {len(table)} localizations to {output_dir}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run blinking-event super-resolution localization on all demo stacks."
+    )
+    parser.add_argument("--data-dir", type=Path, default=Path("data"))
+    parser.add_argument("--output-dir", type=Path, default=Path("results"))
+    parser.add_argument("--pixel-size-nm", type=float, default=40.0)
+    parser.add_argument("--spot-sigma-px", type=float, default=5.0)
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    start = time.time()
+    args = parse_args()
+    run_pipeline(
+        data_dir=args.data_dir,
+        output_dir=args.output_dir,
+        pixel_size_nm=args.pixel_size_nm,
+        spot_sigma_px=args.spot_sigma_px,
+    )
+    print(f"Total runtime: {time.time() - start:.2f} s")

@@ -4,7 +4,7 @@ This repository implements a super-resolution localization method for blinking u
 
 Although developed for upconversion luminescence nanocrystals, the same workflow should be extendable to the broader class of blinking-event-based super-resolution localization problems. 
 
-Because the method was designed from the perspective of processing three-dimensional blinking time traces, the algorithm is being planned to be named **TRIM (Time tRace Integrated Microscopy).** The acronym TRIM also captures the key step of trimming non-blinking intervals from three-dimensional data.
+Because the method was designed from the perspective of processing three-dimensional blinking time traces, the algorithm is being planned to be named ***TRIM (Time tRace Integrated Microscopy).*** The acronym TRIM also captures the key step of trimming non-blinking intervals from three-dimensional data.
 
 The demo stacks are indexed from `0stack.tif` to `10stack.tif`, with matched drift-marker files named `0stamark.tif` to `10stamark.tif`. Index 0 is the lowest excitation power and index 10 is the highest; the approximate power-density range is 2 to 4 kW/cm^2. The demo data are cropped from the original wide-field image data and correspond to spot region I in the manuscript. Because the released demo uses this cropped region, the numerical output can differ slightly from the manuscript values.
 
